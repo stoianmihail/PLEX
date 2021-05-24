@@ -25,8 +25,8 @@ class TrieSpline {
         num_keys_(num_keys),
         spline_max_error_(spline_max_error),
         tree_max_error_(tree_max_error),
-        cht_(std::move(cht)),
-        spline_points_(std::move(spline_points)) {}
+        spline_points_(std::move(spline_points)),
+        cht_(std::move(cht)) {}
 
   // Returns the estimated position of `key`.
   double GetEstimatedPosition(const KeyType key) const {
