@@ -55,23 +55,24 @@ class Builder {
     prev_key_ = key;
   }
 
-  // Finalizes the construction and returns a read-only `RadixSpline`.
-  CompactHistTree<KeyType> Finalize() {
-    // Last key needs to be equal to `max_key_`.
-    assert((!curr_num_keys_) || (prev_key_ == max_key_));
+  // Finalizes the construction and returns a read-only `CHT`.
+  CompactHistTree<KeyType> Finalize(bool real = true) {
+    if (real) {
+      // Last key needs to be equal to `max_key_`.
+      assert((!curr_num_keys_) || (prev_key_ == max_key_));
 
-    if (!single_pass_) {
-      BuildOffline();
+      if (!single_pass_) {
+        BuildOffline();
 
-      if (!use_cache_) {
-        Flatten();
+        if (!use_cache_) {
+          Flatten();
+        } else {
+          CacheObliviousFlatten();
+        }
       } else {
-        CacheObliviousFlatten();
+        PruneAndFlatten();
       }
-    } else {
-      PruneAndFlatten();
     }
-
     return CompactHistTree<KeyType>(min_key_, max_key_, curr_num_keys_,
                                     num_bins_, log_num_bins_, max_error_,
                                     shift_, std::move(table_));

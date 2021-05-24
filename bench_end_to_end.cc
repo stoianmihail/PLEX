@@ -1,5 +1,4 @@
 #include <chrono>
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -8,6 +7,152 @@
 #include "include/ts/ts.h"
 
 using namespace std;
+
+namespace ts_manual_tuning {
+
+// Returns <num_radix_bits, max_error>
+pair<uint64_t, uint64_t> GetTuning(const string& data_filename,
+                                   uint32_t size_scale) {
+  assert(size_scale >= 1 && size_scale <= 10);
+
+  string dataset = data_filename;
+
+  // Cut the prefix of the filename
+  size_t pos = dataset.find_last_of('/');
+  if (pos != string::npos) {
+    dataset.erase(dataset.begin(), dataset.begin() + pos + 1);
+  }
+
+  using Configs = const vector<pair<size_t, size_t>>;
+
+  if (dataset == "normal_200M_uint32") {
+    Configs configs = {{10, 6}, {15, 1}, {16, 1}, {18, 1}, {20, 1},
+                       {21, 1}, {24, 1}, {25, 1}, {26, 1}, {26, 1}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "normal_200M_uint64") {
+    Configs configs = {{14, 2}, {16, 1}, {16, 1}, {20, 1}, {22, 1},
+                       {24, 1}, {26, 1}, {26, 1}, {28, 1}, {28, 1}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "lognormal_200M_uint32") {
+    Configs configs = {{12, 20}, {16, 3}, {16, 2}, {18, 1}, {20, 1},
+                       {22, 1},  {24, 1}, {24, 1}, {26, 1}, {28, 1}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "lognormal_200M_uint64") {
+    Configs configs = {{12, 3}, {18, 1}, {18, 1}, {20, 1}, {22, 1},
+                       {24, 1}, {26, 1}, {26, 1}, {28, 1}, {28, 1}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "uniform_dense_200M_uint32") {
+    Configs configs = {{4, 2},  {16, 2}, {18, 1}, {20, 1}, {20, 1},
+                       {22, 2}, {24, 1}, {26, 3}, {26, 3}, {28, 2}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "uniform_dense_200M_uint64") {
+    Configs configs = {{4, 2},  {16, 1}, {16, 1}, {20, 1}, {22, 1},
+                       {24, 1}, {24, 1}, {26, 1}, {28, 1}, {28, 1}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "uniform_dense_200M_uint64") {
+    Configs configs = {{4, 2},  {16, 1}, {16, 1}, {20, 1}, {22, 1},
+                       {24, 1}, {24, 1}, {26, 1}, {28, 1}, {28, 1}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "uniform_sparse_200M_uint32") {
+    Configs configs = {{12, 220}, {14, 100}, {14, 80}, {16, 30}, {18, 20},
+                       {20, 10},  {20, 8},   {20, 5},  {24, 3},  {26, 1}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "uniform_sparse_200M_uint64") {
+    Configs configs = {{12, 150}, {14, 70}, {16, 50}, {18, 20}, {20, 20},
+                       {20, 9},   {20, 5},  {24, 3},  {26, 2},  {28, 1}};
+    return configs[10 - size_scale];
+  }
+
+  // Books (or amazon in the paper)
+  if (dataset == "books_200M_uint32") {
+    Configs configs = {{14, 250}, {14, 250}, {16, 190}, {18, 80}, {18, 50},
+                       {22, 20},  {22, 9},   {22, 8},   {24, 3},  {28, 2}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "books_200M_uint64") {
+    Configs configs = {{12, 380}, {16, 170}, {16, 110}, {20, 50}, {20, 30},
+                       {22, 20},  {22, 10},  {24, 3},   {26, 3},  {28, 2}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "books_400M_uint64") {
+    Configs configs = {{16, 220}, {16, 220}, {18, 160}, {20, 60}, {20, 40},
+                       {22, 20},  {22, 7},   {26, 3},   {28, 2},  {28, 1}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "books_600M_uint64") {
+    Configs configs = {{18, 330}, {18, 330}, {18, 190}, {20, 70}, {22, 50},
+                       {22, 20},  {24, 7},   {26, 3},   {28, 2},  {28, 1}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "books_800M_uint64") {
+    Configs configs = {{18, 320}, {18, 320}, {18, 200}, {22, 80}, {22, 60},
+                       {22, 20},  {24, 9},   {26, 3},   {28, 3},  {28, 3}};
+    return configs[10 - size_scale];
+  }
+
+  // Facebook
+  if (dataset == "fb_200M_uint64") {
+    Configs configs = {{8, 140}, {8, 140}, {8, 140}, {8, 140}, {10, 90},
+                       {22, 90}, {24, 70}, {26, 80}, {26, 7},  {28, 80}};
+    return configs[10 - size_scale];
+  }
+
+  // OSM
+  if (dataset == "osm_cellids_200M_uint64") {
+    Configs configs = {{20, 160}, {20, 160}, {20, 160}, {20, 160}, {20, 80},
+                       {24, 40},  {24, 20},  {26, 8},   {26, 3},   {28, 2}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "osm_cellids_400M_uint64") {
+    Configs configs = {{20, 190}, {20, 190}, {20, 190}, {20, 190}, {22, 80},
+                       {24, 20},  {26, 20},  {26, 10},  {28, 6},   {28, 2}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "osm_cellids_600M_uint64") {
+    Configs configs = {{20, 190}, {20, 190}, {20, 190}, {22, 180}, {22, 100},
+                       {24, 20},  {26, 20},  {28, 7},   {28, 5},   {28, 2}};
+    return configs[10 - size_scale];
+  }
+
+  if (dataset == "osm_cellids_800M_uint64") {
+    Configs configs = {{22, 190}, {22, 190}, {22, 190}, {22, 190}, {24, 190},
+                       {26, 30},  {26, 20},  {28, 7},   {28, 5},   {28, 1}};
+    return configs[10 - size_scale];
+  }
+
+  // Wiki
+  if (dataset == "wiki_ts_200M_uint64") {
+    Configs configs = {{14, 100}, {14, 100}, {16, 60}, {18, 20}, {20, 20},
+                       {20, 9},   {20, 5},   {22, 3},  {26, 2},  {26, 1}};
+    return configs[10 - size_scale];
+  }
+
+  cerr << "No tuning config for this dataset" << endl;
+  throw;
+}
+}  // namespace ts_manual_tuning
 
 namespace util {
 
@@ -56,19 +201,16 @@ class NonOwningMultiMap {
   using element_type = pair<KeyType, ValueType>;
 
   NonOwningMultiMap(const vector<element_type>& elements,
-                    const uint32_t spline_max_error, const uint32_t num_bins,
-                    const uint32_t cht_max_error, const bool single_pass,
-                    const bool ccht)
+                    size_t num_radix_bits = 18, size_t max_error = 32)
       : data_(elements) {
     assert(elements.size() > 0);
 
-    // Create builder.
+    // Create spline builder.
     const auto min_key = data_.front().first;
     const auto max_key = data_.back().first;
-    ts::Builder<KeyType> tsb(min_key, max_key, spline_max_error, num_bins,
-                             cht_max_error, single_pass, ccht);
+    ts::Builder<KeyType> tsb(min_key, max_key, num_radix_bits, max_error);
 
-    // Build the index.
+    // Build the radix spline.
     for (const auto& iter : data_) {
       tsb.AddKey(iter.first);
     }
@@ -88,7 +230,7 @@ class NonOwningMultiMap {
     auto iter = lower_bound(key);
     while (iter != data_.end() && iter->first == key) {
       result += iter->second;
-      iter++;
+      ++iter;
     }
     return result;
   }
@@ -107,31 +249,28 @@ struct Lookup {
 };
 
 template <class KeyType>
-void Run(const string& data_file, const string lookup_file,
-         const uint32_t spline_max_error, const uint32_t num_bins,
-         const uint32_t cht_max_error, const bool single_pass,
-         const bool ccht) {
+void Run(const string& data_file, const string lookup_file) {
   // Load data
-  std::cerr << "Loading data.." << std::endl;
   vector<KeyType> keys = util::load_data<KeyType>(data_file);
   vector<pair<KeyType, uint64_t>> elements = util::add_values(keys);
   vector<Lookup<KeyType>> lookups =
       util::load_data<Lookup<KeyType>>(lookup_file);
 
-  // Build index
-  std::cerr << "Building index.." << std::endl;
-  auto build_begin = chrono::high_resolution_clock::now();
-  NonOwningMultiMap<KeyType, uint64_t> map(elements, spline_max_error, num_bins,
-                                           cht_max_error, single_pass, ccht);
-  auto build_end = chrono::high_resolution_clock::now();
-  uint64_t build_ns =
-      chrono::duration_cast<chrono::nanoseconds>(build_end - build_begin)
-          .count();
+  cout << "data_file,radix,error,size,mem,build,lookup" << std::endl;  
+  for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
+    // Get the config for tuning
+    auto tuning = ts_manual_tuning::GetTuning(data_file, size_config);
 
-  // Run queries
-  std::cerr << "Run queries.." << std::endl;
-  vector<uint64_t> lookup_ns;
-  for (uint32_t i = 0; i < 3; i++) {
+    // Build RS
+    auto build_begin = chrono::high_resolution_clock::now();
+    NonOwningMultiMap<KeyType, uint64_t> map(elements, tuning.first,
+                                             tuning.second);
+    auto build_end = chrono::high_resolution_clock::now();
+    uint64_t build_ns =
+        chrono::duration_cast<chrono::nanoseconds>(build_end - build_begin)
+            .count();
+
+    // Run queries
     auto lookup_begin = chrono::high_resolution_clock::now();
     for (const Lookup<KeyType>& lookup_iter : lookups) {
       uint64_t sum = map.sum_up(lookup_iter.key);
@@ -141,45 +280,35 @@ void Run(const string& data_file, const string lookup_file,
       }
     }
     auto lookup_end = chrono::high_resolution_clock::now();
-    uint64_t run_lookup_ns =
+    uint64_t lookup_ns =
         chrono::duration_cast<chrono::nanoseconds>(lookup_end - lookup_begin)
             .count();
-    lookup_ns.push_back(run_lookup_ns / lookups.size());
-  }
-  sort(lookup_ns.begin(), lookup_ns.end());
 
-  cout << data_file << "," << spline_max_error << "," << num_bins << ","
-       << cht_max_error << "," << single_pass << "," << ccht << ","
-       << static_cast<double>(map.GetSizeInByte()) / 1000 / 1000 << ","
-       << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
-       << lookup_ns[1] << endl;
+    cout << data_file << ","
+         << lookup_file << ","
+         << tuning.first << ","
+         << tuning.second << ","
+         << size_config << ","
+         << (map.GetSizeInByte() / 1000) / 1000.0 << ","
+         << (build_ns / 1000 / 1000) / 1000.0 << ","
+         << lookup_ns / lookups.size() << endl;
+  }
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 8) {
-    cerr << "usage: " << argv[0]
-         << " <data_file> <lookup_file> <spline_max_error> <num_bins> "
-            "<cht_max_error> <single_pass> "
-            "<ccht>"
-         << endl;
+  if (argc != 3) {
+    cerr << "usage: " << argv[0] << " <data_file> <lookup_file>" << endl;
     exit(-1);
   }
   const string data_file = argv[1];
   const string lookup_file = argv[2];
-  const uint32_t spline_max_error = atoi(argv[3]);
-  const uint32_t num_bins = atoi(argv[4]);
-  const uint32_t cht_max_error = atoi(argv[5]);
-  const bool single_pass = atoi(argv[6]);
-  const bool ccht = atoi(argv[7]);
 
   if (data_file.find("32") != string::npos) {
-    Run<uint32_t>(data_file, lookup_file, spline_max_error, num_bins,
-                  cht_max_error, single_pass, ccht);
+    Run<uint32_t>(data_file, lookup_file);
   } else {
-    Run<uint64_t>(data_file, lookup_file, spline_max_error, num_bins,
-                  cht_max_error, single_pass, ccht);
+    Run<uint64_t>(data_file, lookup_file);
   }
 
   return 0;

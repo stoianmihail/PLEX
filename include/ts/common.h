@@ -12,6 +12,14 @@ struct Coord {
   double y;
 };
 
+// A radix config.
+struct RadixConfig {
+	unsigned shiftBits;
+	unsigned prevPrefix;
+	unsigned prevSplineIndex;
+	double cost;
+};
+
 struct SearchBound {
   size_t begin;
   size_t end;  // Exclusive.
