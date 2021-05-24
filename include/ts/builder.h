@@ -18,7 +18,7 @@ template <class KeyType>
 class Builder {
  public:
   Builder(KeyType min_key, KeyType max_key, size_t spline_max_error,
-          size_t num_bins, size_t tree_max_error, bool single_pass = true,
+          size_t num_bins, size_t tree_max_error, bool single_pass = false,
           bool use_cache = false)
       : min_key_(min_key),
         max_key_(max_key),
