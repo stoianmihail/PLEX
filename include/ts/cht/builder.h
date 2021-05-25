@@ -60,21 +60,30 @@ class Builder {
     // Last key needs to be equal to `max_key_`.
     assert((!curr_num_keys_) || (prev_key_ == max_key_));
 
+    auto single_layer_ = false;
     if (!single_pass_) {
       BuildOffline();
 
       if (!use_cache_) {
-        Flatten();
+        single_layer_ = Flatten();
       } else {
-        CacheObliviousFlatten();
+        single_layer_ = CacheObliviousFlatten();
       }
     } else {
-      PruneAndFlatten();
+      single_layer_ = PruneAndFlatten();
     }
 
-    return CompactHistTree<KeyType>(min_key_, max_key_, curr_num_keys_,
+    std::cerr << "single_layer=" << single_layer_ << std::endl;
+
+    if (!single_layer_) {
+      return CompactHistTree<KeyType>(min_key_, max_key_, curr_num_keys_,
                                     num_bins_, log_num_bins_, max_error_,
-                                    shift_, std::move(table_));
+                                    shift_, single_layer_, std::move(table_));
+    } else {
+      return CompactHistTree<KeyType>(min_key_, max_key_, curr_num_keys_,
+                                    num_bins_, log_num_bins_, max_error_,
+                                    num_shift_bits_, single_layer_, std::move(table_));  
+    }
   }
 
  private:
@@ -99,6 +108,20 @@ class Builder {
   static unsigned computeLog(uint64_t n, bool round = false) {
     assert(n);
     return 63 - __builtin_clzl(n) + (round ? ((n & (n - 1)) != 0) : 0);
+  }
+
+  // Returns the number of shift bits based on the `diff` between the largest
+  // and the smallest key. KeyType == uint32_t.
+  static size_t GetNumShiftBits(uint32_t diff, size_t num_radix_bits) {
+    const uint32_t clz = __builtin_clz(diff);
+    if ((32 - clz) < num_radix_bits) return 0;
+    return 32 - num_radix_bits - clz;
+  }
+  // KeyType == uint64_t.
+  static size_t GetNumShiftBits(uint64_t diff, size_t num_radix_bits) {
+    const uint32_t clzl = __builtin_clzl(diff);
+    if ((64 - clzl) < num_radix_bits) return 0;
+    return 64 - num_radix_bits - clzl;
   }
 
   void IncrementTable(KeyType key) {
@@ -145,7 +168,7 @@ class Builder {
     Insert();
   }
 
-  void PruneAndFlatten() {
+  bool PruneAndFlatten() {
     // Init the helpers.
     std::queue<Elem> nodes;
     std::vector<unsigned> mapping(tree_.size(), Infinity);
@@ -217,6 +240,7 @@ class Builder {
       }
     }
     tree_.clear();
+    return false;
   }
 
   void BuildOffline() {
@@ -310,8 +334,66 @@ class Builder {
   }
 
   // Flatten the layout of the tree.
-  void Flatten() {
+  bool Flatten() {
+    // Transform into radix table.
+    if (tree_.size() == 1) {
+      num_radix_bits_ = log_num_bins_;
+      num_shift_bits_ = GetNumShiftBits(max_key_ - min_key_, num_radix_bits_);
+      const uint32_t max_prefix = (max_key_ - min_key_) >> num_shift_bits_;
+      table_.resize(max_prefix + 2, 0);
+      for (size_t index = 0, limit = table_.size(); index != limit; ++index)
+        table_[index] = (tree_.front().second[index].first & Mask);
+      return true;
+    }
+
+#if 0
     std::cerr << "tree.size()=" << tree_.size() << std::endl;
+    if (tree_.size() == 1) {
+      for (unsigned index = 0; index != 20; ++index) {
+        std::cerr << "bin=" << index << std::endl;
+        if (tree_[0].second[index].first & Leaf) {
+          std::cerr << "leaf! -> pos=" << (tree_[0].second[index].first & Mask) << std::endl;
+        } else {
+          std::cerr << "what?" << std::endl;
+        }
+      }
+
+      num_radix_bits_ = log_num_bins_;
+      num_shift_bits_ = GetNumShiftBits(max_key_ - min_key_, num_radix_bits_);
+      const uint32_t max_prefix = (max_key_ - min_key_) >> num_shift_bits_;
+      
+      std::cerr << "max_prefix=" << max_prefix << " vs num_bins=" << num_bins_ << std::endl;
+
+
+      std::cerr << "spline.size()=" << keys_.size() << std::endl; 
+      for (unsigned index = 0; index != 20; ++index) {
+        auto bin = max_prefix + index - 10;
+        std::cerr << "bin=" << bin << std::endl;
+        if (bin >= num_bins_) {
+          std::cerr << "overflow!" << std::endl;
+          break;
+        }
+        if (tree_[0].second[bin].first & Leaf) {
+          std::cerr << "leaf! -> pos=" << (tree_[0].second[bin].first & Mask) << std::endl;
+        } else {
+          std::cerr << "what?" << std::endl;
+        }
+      
+      }
+
+      std::cerr << "------ reverse!" << std::endl;
+      for (unsigned index = 10; index; --index) {
+        auto bin = num_bins_ - index;
+        std::cerr << "bin=" << bin << std::endl;
+        if (tree_[0].second[bin].first & Leaf) {
+          std::cerr << "leaf! -> pos=" << (tree_[0].second[bin].first & Mask) << std::endl;
+        } else {
+          std::cerr << "what?" << std::endl;
+        }
+      }
+    }
+#endif
+
     table_.resize(static_cast<size_t>(tree_.size()) * num_bins_);
     for (size_t index = 0, limit = tree_.size(); index != limit; ++index) {
       for (unsigned bin = 0; bin != num_bins_; ++bin) {
@@ -327,11 +409,12 @@ class Builder {
         }
       }
     }
+    return false;
   }
 
   // Flatten the layout of the tree, such that the final layout is
   // cache-oblivious.
-  void CacheObliviousFlatten() {
+  bool CacheObliviousFlatten() {
     // Build the precendence graph between nodes.
     assert(!tree_.empty());
     auto maxLevel = tree_.back().first.first;
@@ -436,6 +519,7 @@ class Builder {
     // And clean.
     helper.clear();
     order.clear();
+    return false;
   }
 
   const KeyType min_key_;
@@ -449,6 +533,9 @@ class Builder {
   size_t curr_num_keys_;
   KeyType prev_key_;
   size_t shift_;
+
+  size_t num_radix_bits_;
+  size_t num_shift_bits_;
 
   std::vector<KeyType> keys_;
   std::vector<unsigned> table_;

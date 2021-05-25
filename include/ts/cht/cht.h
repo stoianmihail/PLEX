@@ -17,7 +17,7 @@ class CompactHistTree {
 
   CompactHistTree(KeyType min_key, KeyType max_key, size_t num_keys,
                   size_t num_bins, size_t log_num_bins, size_t max_error,
-                  size_t shift, std::vector<unsigned> table)
+                  size_t shift, bool single_layer, std::vector<unsigned> table)
       : min_key_(min_key),
         max_key_(max_key),
         num_keys_(num_keys),
@@ -25,16 +25,25 @@ class CompactHistTree {
         log_num_bins_(log_num_bins),
         max_error_(max_error),
         shift_(shift),
+        single_layer_(single_layer),
         table_(std::move(table)) {}
 
   // Returns a search bound [`begin`, `end`) around the estimated position.
   SearchBound GetSearchBound(const KeyType key) const {
-    const size_t begin = Lookup(key);
-    // `end` is exclusive.
-    const size_t end = (begin + max_error_ + 1 > num_keys_)
-                           ? num_keys_
-                           : (begin + max_error_ + 1);
-    return SearchBound{begin, end};
+    if (!single_layer_) {
+      const size_t begin = Lookup(key);
+      // `end` is exclusive.
+      const size_t end = (begin + max_error_ + 1 > num_keys_)
+                            ? num_keys_
+                            : (begin + max_error_ + 1);
+      return SearchBound{begin, end};
+    } else {
+      const KeyType prefix = (key - min_key_) >> shift_;
+      assert(prefix + 1 < table_.size());
+      const uint32_t begin = table_[prefix];
+      const uint32_t end = table_[prefix + 1];
+      return SearchBound{begin, end};
+    }
   }
 
   // Returns the size in bytes.
@@ -48,11 +57,7 @@ class CompactHistTree {
 
   // Lookup `key` in tree
   size_t Lookup(KeyType key) const {
-    // Edge cases
-    if (key <= min_key_) return 0;
-    if (key >= max_key_) return num_keys_;
     key -= min_key_;
-
     auto width = shift_;
     size_t next = 0;
     do {
@@ -76,6 +81,7 @@ class CompactHistTree {
   size_t log_num_bins_;
   size_t max_error_;
   size_t shift_;
+  bool single_layer_;
 
   std::vector<unsigned> table_;
 };
