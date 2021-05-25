@@ -9,6 +9,7 @@ find_package(Threads REQUIRED)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 file(GLOB INCLUDE_H "include/ts/*.h")
+file(GLOB INCLUDE_H "include/rs/*.h")
 set(EXAMPLE_FILES example.cc)
 set(BENCH_FILES bench.cc)
 set(BENCH_END_TO_END_FILES bench_end_to_end.cc)
