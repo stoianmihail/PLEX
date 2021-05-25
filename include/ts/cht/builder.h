@@ -73,8 +73,6 @@ class Builder {
       single_layer_ = PruneAndFlatten();
     }
 
-    std::cerr << "single_layer=" << single_layer_ << std::endl;
-
     if (!single_layer_) {
       return CompactHistTree<KeyType>(min_key_, max_key_, curr_num_keys_,
                                     num_bins_, log_num_bins_, max_error_,
@@ -334,65 +332,12 @@ class Builder {
   }
 
   // Flatten the layout of the tree.
-  bool Flatten() {
-    // Transform into radix table.
+  bool Flatten() {    
+    // Transform into radix table if there is only one node.
     if (tree_.size() == 1) {
-      num_radix_bits_ = log_num_bins_;
-      num_shift_bits_ = GetNumShiftBits(max_key_ - min_key_, num_radix_bits_);
-      const uint32_t max_prefix = (max_key_ - min_key_) >> num_shift_bits_;
-      table_.resize(max_prefix + 2, 0);
-      for (size_t index = 0, limit = table_.size(); index != limit; ++index)
-        table_[index] = (tree_.front().second[index].first & Mask);
+      TransformIntoRadixTable();
       return true;
     }
-
-#if 0
-    std::cerr << "tree.size()=" << tree_.size() << std::endl;
-    if (tree_.size() == 1) {
-      for (unsigned index = 0; index != 20; ++index) {
-        std::cerr << "bin=" << index << std::endl;
-        if (tree_[0].second[index].first & Leaf) {
-          std::cerr << "leaf! -> pos=" << (tree_[0].second[index].first & Mask) << std::endl;
-        } else {
-          std::cerr << "what?" << std::endl;
-        }
-      }
-
-      num_radix_bits_ = log_num_bins_;
-      num_shift_bits_ = GetNumShiftBits(max_key_ - min_key_, num_radix_bits_);
-      const uint32_t max_prefix = (max_key_ - min_key_) >> num_shift_bits_;
-      
-      std::cerr << "max_prefix=" << max_prefix << " vs num_bins=" << num_bins_ << std::endl;
-
-
-      std::cerr << "spline.size()=" << keys_.size() << std::endl; 
-      for (unsigned index = 0; index != 20; ++index) {
-        auto bin = max_prefix + index - 10;
-        std::cerr << "bin=" << bin << std::endl;
-        if (bin >= num_bins_) {
-          std::cerr << "overflow!" << std::endl;
-          break;
-        }
-        if (tree_[0].second[bin].first & Leaf) {
-          std::cerr << "leaf! -> pos=" << (tree_[0].second[bin].first & Mask) << std::endl;
-        } else {
-          std::cerr << "what?" << std::endl;
-        }
-      
-      }
-
-      std::cerr << "------ reverse!" << std::endl;
-      for (unsigned index = 10; index; --index) {
-        auto bin = num_bins_ - index;
-        std::cerr << "bin=" << bin << std::endl;
-        if (tree_[0].second[bin].first & Leaf) {
-          std::cerr << "leaf! -> pos=" << (tree_[0].second[bin].first & Mask) << std::endl;
-        } else {
-          std::cerr << "what?" << std::endl;
-        }
-      }
-    }
-#endif
 
     table_.resize(static_cast<size_t>(tree_.size()) * num_bins_);
     for (size_t index = 0, limit = tree_.size(); index != limit; ++index) {
@@ -417,6 +362,13 @@ class Builder {
   bool CacheObliviousFlatten() {
     // Build the precendence graph between nodes.
     assert(!tree_.empty());
+    
+    // Transform into radix table if there is only one node.
+    if (tree_.size() == 1) {
+      TransformIntoRadixTable();
+      return true;
+    }
+
     auto maxLevel = tree_.back().first.first;
     std::vector<std::vector<unsigned>> graph(tree_.size());
     for (unsigned index = 0, limit = tree_.size(); index != limit; ++index) {
@@ -520,6 +472,16 @@ class Builder {
     helper.clear();
     order.clear();
     return false;
+  }
+
+  void TransformIntoRadixTable() {
+    assert(tree_.size() == 1);
+    num_radix_bits_ = log_num_bins_;
+    num_shift_bits_ = GetNumShiftBits(max_key_ - min_key_, num_radix_bits_);
+    const uint32_t max_prefix = (max_key_ - min_key_) >> num_shift_bits_;
+    table_.resize(max_prefix + 2, 0);
+    for (size_t index = 0, limit = table_.size(); index != limit; ++index)
+      table_[index] = (tree_.front().second[index].first & Mask);
   }
 
   const KeyType min_key_;
