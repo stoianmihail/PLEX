@@ -311,6 +311,7 @@ class Builder {
 
   // Flatten the layout of the tree.
   void Flatten() {
+    std::cerr << "tree.size()=" << tree_.size() << std::endl;
     table_.resize(static_cast<size_t>(tree_.size()) * num_bins_);
     for (size_t index = 0, limit = tree_.size(); index != limit; ++index) {
       for (unsigned bin = 0; bin != num_bins_; ++bin) {
