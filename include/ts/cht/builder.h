@@ -34,6 +34,8 @@ class Builder {
     assert(lg >= log_num_bins_);
     shift_ = lg - log_num_bins_;
 
+    std::cerr << "shift=" << shift_ << std::endl;
+
     if ((use_cache) && (single_pass))
       std::cerr << "Cache-oblivious and single-pass not supported yet! In this "
                    "case it will ignore the single-pass option."
@@ -288,6 +290,8 @@ class Builder {
       // Extract from the queue.
       auto node = nodes.front();
       nodes.pop();
+
+      std::cerr << "pop node=" << node << std::endl;
 
       // Consider each bin and decide whether we should split it.
       unsigned level = tree_[node].first.first;

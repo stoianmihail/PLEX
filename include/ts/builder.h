@@ -49,8 +49,12 @@ class Builder {
     if (curr_num_keys_ > 0 && spline_points_.back().x != prev_key_)
       AddKeyToSpline(prev_key_, prev_position_);
 
+    ComputeStatistics();
+
     // Finalize CHT
     auto cht_ = chtb_.Finalize();
+
+    std::cerr << "finalize cht!" << std::endl;
 
     // And return the read-only instance
     return TrieSpline<KeyType>(min_key_, max_key_, curr_num_keys_,
@@ -59,6 +63,26 @@ class Builder {
   }
 
  private:
+  using Interval = std::pair<unsigned, unsigned>;
+
+  static unsigned computeLog(uint32_t n, bool round = false) {
+    assert(n);
+    return 31 - __builtin_clz(n) + (round ? ((n & (n - 1)) != 0) : 0);
+  }
+
+  static unsigned computeLog(uint64_t n, bool round = false) {
+    assert(n);
+    return 63 - __builtin_clzl(n) + (round ? ((n & (n - 1)) != 0) : 0);
+  }
+
+  static unsigned computeLcp(uint32_t x, uint32_t y) {
+    return __builtin_clz(x ^ y);
+  }
+
+  static unsigned computeLcp(uint64_t x, uint64_t y) {
+    return __builtin_clzl(x ^ y);
+  }
+
   void AddKey(KeyType key, size_t position) {
     assert(key >= min_key_ && key <= max_key_);
     // Keys need to be monotonically increasing.
@@ -189,6 +213,176 @@ class Builder {
   }
 
   void AddKeyToCHT(KeyType key) { chtb_.AddKey(key); }
+
+  void ComputeStatistics() {
+    unsigned maxBitLevel = 64;
+    auto lg = computeLog(max_key_ - min_key_, true);
+    auto alreadyCommon = (sizeof(KeyType) << 3) - lg;
+
+    // TODO: use lg as maxBitLevel?
+    // TODO: also check when min_key != 0!!!!
+
+    // Compute the longest-common-prefix.
+    const auto ExtractLCP = [&](unsigned index) -> unsigned {
+      return computeLcp(spline_points_[index].x - min_key_, spline_points_[index - 1].x - min_key_) - alreadyCommon;// __builtin_clzl((spline_points_[index].x - min_key_) ^ (spline_points_[index - 1].x - min_key_)) - alreadyCommon;
+    };
+
+    // Fill the lcp-array.
+    std::vector<unsigned> lcp(spline_points_.size());
+    std::vector<unsigned> counters(maxBitLevel + 1);
+    lcp[0] = std::numeric_limits<unsigned>::max();
+    for (unsigned index = 1, limit = spline_points_.size(); index != limit; ++index) {
+      lcp[index] = ExtractLCP(index);
+      std::cerr << "index=" << index << " x1=" << spline_points_[index-1].x << " x2=" << spline_points_[index].x << " lcp=" << lcp[index] << std::endl;
+      counters[lcp[index]]++;
+    }
+
+    // TODO: don't forget that we have [1, size()[
+    std::vector<unsigned> offsets(maxBitLevel + 2);
+    for (unsigned bit = 1; bit <= maxBitLevel; ++bit) {
+      offsets[bit] = offsets[bit - 1] + counters[bit - 1];
+    }
+
+    std::vector<unsigned> sorted(spline_points_.size() - 1);
+    for (unsigned index = 1, limit = spline_points_.size(); index != limit; ++index) {
+      sorted[offsets[lcp[index]]++] = index;
+    }
+
+    std::pair<unsigned, std::vector<Interval>> histogram[2];
+    histogram[0].first = histogram[1].first = 0;
+    histogram[0].second.resize(spline_points_.size());
+    histogram[1].second.resize(spline_points_.size());
+    unsigned side = 0;
+
+    const auto AddNewInterval = [&](Interval interval) -> void {
+      // Empty interval?
+      if (interval.first == interval.second)
+        return;
+      histogram[side].second[histogram[side].first++] = interval;
+    };
+
+
+    // Init the first level of the histogram and move already to the next level.
+    AddNewInterval({1, spline_points_.size()});
+    unsigned ptrInSorted = 0;
+
+    const auto print = [&](Interval interval) -> std::string {
+      std::string ret = "[";
+      ret += std::to_string(interval.first);
+      ret += ", ";
+      ret += std::to_string(interval.second);
+      ret += "[";
+      return ret;
+    };
+
+    const auto AnalyzeInterval = [&](unsigned level, Interval interval) -> void {
+      const auto isInside = [&](unsigned pos) -> bool {
+        return (interval.first <= pos) && (pos < interval.second);
+      };
+ 
+      std::cerr << "[analyze interval] level=" << level << " interval=" << print(interval) << std::endl;
+
+      // TODO: is this fine?
+      if (ptrInSorted == sorted.size()) {
+        AddNewInterval(interval);
+        return;
+      }
+
+      // Could the next `lcp` be an interval-breaker?
+      auto leftSide = interval.first;
+      while ((ptrInSorted != sorted.size()) && (lcp[sorted[ptrInSorted]] < level)) {
+        // Check if its position is inside our interval.
+        // TODO: make sure that it's correct! (small example)
+        
+        // interval := [first, second[
+        if (!isInside(sorted[ptrInSorted]))
+          break;
+        
+        AddNewInterval({leftSide, sorted[ptrInSorted]});
+        leftSide = sorted[ptrInSorted] + 1;
+        ++ptrInSorted;
+      }
+      // TODO: check it's correct.
+      // It can be the same interval!!!!!!
+      AddNewInterval({leftSide, interval.second});
+    };
+
+    // TODO: mark numBins as unsigned! To avoid the same compilatoion error on mac!
+    static constexpr unsigned numPossibleBins = 2;
+    static constexpr unsigned maxPossibleTreeError = 4;
+    std::vector<unsigned> possibleNumBins(numPossibleBins);
+    std::vector<std::vector<unsigned>> matrix(numPossibleBins);
+    for (unsigned index = 0; index != numPossibleBins; ++index) {
+      possibleNumBins[index] = (1u << (index + 1));
+      matrix[index].assign(1 + maxPossibleTreeError, 0);
+    }
+
+    const auto ConsumeLevel = [&](unsigned level) -> void {
+      for (unsigned index = 0; index != numPossibleBins; ++index) {
+        auto currNumBins = possibleNumBins[index];
+        
+
+        // Does this number of bins benefit from this level?
+        // TODO: optimize this condition!!! (preprocess the number of bins for each level)
+        if (level % computeLog(currNumBins) == 0) {
+          std::cerr << "Consume level=" << level << std::endl;
+          std::cerr << "currNumbins=" << currNumBins << std::endl;
+          // Consume all intervals.
+          for (unsigned ptr = 0, limit = histogram[side].first; ptr != limit; ++ptr) {
+            // [first, second[ also takes into consideration the `first-1`th element.
+            // This is due to `lcp`-array, which takes the previous element into consideration.
+            // That's why `second` - `first` + 1.
+            assert(histogram[side].second[ptr].second > histogram[side].second[ptr].first);
+            auto intervalSize = histogram[side].second[ptr].second - histogram[side].second[ptr].first + 1;
+            matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)] += intervalSize;
+            std::cerr << "take interval=" << print(histogram[side].second[ptr]) << " intervalSize=" << intervalSize << std::endl;
+          }
+          std::cerr << "--------------------------------" << std::endl;
+        }
+      }
+    };
+
+    // TODO: until which bit? log2(num_bits) possible. Consider max - min?
+    // TODO: really max lcp???
+    for (unsigned level = 1; level <= 6; ++level) {
+      std::cerr << "level=" << level << std::endl;
+      side = 1 - side;
+      histogram[side].first = 0;
+      for (unsigned index = 0, limit = histogram[1 - side].first; index != limit; ++index) {
+        AnalyzeInterval(level, histogram[1 - side].second[index]);
+      }
+      ConsumeLevel(level);
+    }
+
+
+    for (unsigned index = 0; index != numPossibleBins; ++index) {
+      std::cerr << "num_bins=" << possibleNumBins[index] << std::endl << "\t";
+      for (unsigned ptr = 0; ptr <= maxPossibleTreeError; ++ptr) {
+        std::cerr << matrix[index][ptr] << ", "; 
+      }
+      std::cerr << std::endl;
+    }
+
+
+    // Build the prefix sums.
+    for (unsigned index = 0; index != numPossibleBins; ++index) {
+      for (unsigned backPtr = maxPossibleTreeError; backPtr; --backPtr) {
+        matrix[index][backPtr - 1] += matrix[index][backPtr];
+      }
+    }
+
+    for (unsigned index = 0; index != numPossibleBins; ++index) {
+      std::cerr << "num_bins=" << possibleNumBins[index] << std::endl << "\t";
+      for (unsigned ptr = 0; ptr <= maxPossibleTreeError; ++ptr) {
+        std::cerr << matrix[index][ptr] << ", "; 
+      }
+      std::cerr << std::endl;
+    }
+
+    
+
+    std::cerr << "finished statistic!" << std::endl;
+  }
 
   const KeyType min_key_;
   const KeyType max_key_;
