@@ -214,10 +214,13 @@ class Builder {
 
   void AddKeyToCHT(KeyType key) { chtb_.AddKey(key); }
 
+#define DEBUG 0
   void ComputeStatistics() {
     unsigned maxBitLevel = 64;
-    auto lg = computeLog(max_key_ - min_key_, true);
-    auto alreadyCommon = (sizeof(KeyType) << 3) - lg;
+    unsigned lg = computeLog(max_key_ - min_key_, true);
+    unsigned alreadyCommon = (sizeof(KeyType) << 3) - lg;
+
+    std::cerr << "lg=" << lg << std::endl;
 
     // TODO: use lg as maxBitLevel?
     // TODO: also check when min_key != 0!!!!
@@ -233,7 +236,7 @@ class Builder {
     lcp[0] = std::numeric_limits<unsigned>::max();
     for (unsigned index = 1, limit = spline_points_.size(); index != limit; ++index) {
       lcp[index] = ExtractLCP(index);
-      std::cerr << "index=" << index << " x1=" << spline_points_[index-1].x << " x2=" << spline_points_[index].x << " lcp=" << lcp[index] << std::endl;
+      //std::cerr << "index=" << index << " x1=" << spline_points_[index-1].x << " x2=" << spline_points_[index].x << " lcp=" << lcp[index] << std::endl;
       counters[lcp[index]]++;
     }
 
@@ -247,6 +250,8 @@ class Builder {
     for (unsigned index = 1, limit = spline_points_.size(); index != limit; ++index) {
       sorted[offsets[lcp[index]]++] = index;
     }
+    //std::cerr << "offsets[lg]=" << offsets[lg] << " vs " << spline_points_.size() << std::endl;
+    //assert(offsets[lg] == spline_points_.size());
 
     std::pair<unsigned, std::vector<Interval>> histogram[2];
     histogram[0].first = histogram[1].first = 0;
@@ -279,12 +284,14 @@ class Builder {
       const auto isInside = [&](unsigned pos) -> bool {
         return (interval.first <= pos) && (pos < interval.second);
       };
- 
+ #if DEBUG
       std::cerr << "[analyze interval] level=" << level << " interval=" << print(interval) << std::endl;
+#endif
 
+      //std::cerr << "ptrInSorted=" << ptrInSorted << " vs sorted.size()=" << sorted.size() << std::endl;
       // TODO: is this fine?
       if (ptrInSorted == sorted.size()) {
-        AddNewInterval(interval);
+        std::cerr << "already here!" << std::endl;
         return;
       }
 
@@ -308,10 +315,11 @@ class Builder {
     };
 
     // TODO: mark numBins as unsigned! To avoid the same compilatoion error on mac!
-    static constexpr unsigned numPossibleBins = 2;
-    static constexpr unsigned maxPossibleTreeError = 4;
+    static constexpr unsigned maxNumPossibleBins = 20;
+    unsigned numPossibleBins = std::min(maxNumPossibleBins, lg);
+    static constexpr unsigned maxPossibleTreeError = 1u << 10;
     std::vector<unsigned> possibleNumBins(numPossibleBins);
-    std::vector<std::vector<unsigned>> matrix(numPossibleBins);
+    std::vector<std::vector<uint64_t>> matrix(numPossibleBins);
     for (unsigned index = 0; index != numPossibleBins; ++index) {
       possibleNumBins[index] = (1u << (index + 1));
       matrix[index].assign(1 + maxPossibleTreeError, 0);
@@ -324,9 +332,12 @@ class Builder {
 
         // Does this number of bins benefit from this level?
         // TODO: optimize this condition!!! (preprocess the number of bins for each level)
+        //std::cerr << "currNumBins=" << currNumBins << " log=" << computeLog(currNumBins) << std::endl;
         if (level % computeLog(currNumBins) == 0) {
+#if DEBUG
           std::cerr << "Consume level=" << level << std::endl;
           std::cerr << "currNumbins=" << currNumBins << std::endl;
+#endif
           // Consume all intervals.
           for (unsigned ptr = 0, limit = histogram[side].first; ptr != limit; ++ptr) {
             // [first, second[ also takes into consideration the `first-1`th element.
@@ -335,16 +346,20 @@ class Builder {
             assert(histogram[side].second[ptr].second > histogram[side].second[ptr].first);
             auto intervalSize = histogram[side].second[ptr].second - histogram[side].second[ptr].first + 1;
             matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)] += intervalSize;
+#if DEBUG
             std::cerr << "take interval=" << print(histogram[side].second[ptr]) << " intervalSize=" << intervalSize << std::endl;
+#endif
           }
+#if DEBUG
           std::cerr << "--------------------------------" << std::endl;
+#endif
         }
       }
     };
 
     // TODO: until which bit? log2(num_bits) possible. Consider max - min?
     // TODO: really max lcp???
-    for (unsigned level = 1; level <= 6; ++level) {
+    for (unsigned level = 1; level <= lg; ++level) {
       std::cerr << "level=" << level << std::endl;
       side = 1 - side;
       histogram[side].first = 0;
@@ -354,7 +369,7 @@ class Builder {
       ConsumeLevel(level);
     }
 
-
+#if 0
     for (unsigned index = 0; index != numPossibleBins; ++index) {
       std::cerr << "num_bins=" << possibleNumBins[index] << std::endl << "\t";
       for (unsigned ptr = 0; ptr <= maxPossibleTreeError; ++ptr) {
@@ -362,15 +377,27 @@ class Builder {
       }
       std::cerr << std::endl;
     }
+#endif
 
 
     // Build the prefix sums.
+    std::vector<std::pair<unsigned, double>> bestConfigurations(numPossibleBins);
     for (unsigned index = 0; index != numPossibleBins; ++index) {
+      unsigned localBest = maxPossibleTreeError;
+      uint64_t localMinCost = matrix[index][maxPossibleTreeError] + computeLog(maxPossibleTreeError, true);
       for (unsigned backPtr = maxPossibleTreeError; backPtr; --backPtr) {
         matrix[index][backPtr - 1] += matrix[index][backPtr];
+        if (matrix[index][backPtr - 1] + computeLog(backPtr - 1, true) < localMinCost) {
+          localMinCost = matrix[index][backPtr - 1] + computeLog(backPtr - 1, true);
+          localBest = backPtr - 1;
+        }
       }
+      double localAvg = 1.0 * localMinCost / spline_points_.size();
+      bestConfigurations[index] = {localBest, localAvg};
+      std::cerr << "numBins=" << possibleNumBins[index] << " localAvg=" << localAvg << " localBest=" << localBest << std::endl;
     }
 
+#if 0
     for (unsigned index = 0; index != numPossibleBins; ++index) {
       std::cerr << "num_bins=" << possibleNumBins[index] << std::endl << "\t";
       for (unsigned ptr = 0; ptr <= maxPossibleTreeError; ++ptr) {
@@ -378,8 +405,7 @@ class Builder {
       }
       std::cerr << std::endl;
     }
-
-    
+#endif
 
     std::cerr << "finished statistic!" << std::endl;
   }

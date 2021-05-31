@@ -348,6 +348,9 @@ void RunTS(const string& data_file, const string lookup_file) {
   vector<Lookup<KeyType>> lookups =
       util::load_data<Lookup<KeyType>>(lookup_file);
 
+  NonOwningMultiMapTS<KeyType, uint64_t> map(elements, 20, 1);
+
+#if 0
   cout << "data_file,radix,spline,size(MB),build(s),lookup" << std::endl;
   for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
     // Get the config for tuning
@@ -381,6 +384,7 @@ void RunTS(const string& data_file, const string lookup_file) {
        << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
        << lookup_ns / lookups.size() << endl;
   }
+#endif
 }
 
 }  // namespace
