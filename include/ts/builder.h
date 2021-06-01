@@ -320,7 +320,7 @@ class Builder {
     unsigned numPossibleBins = std::min(maxNumPossibleBins, lg);
     static constexpr unsigned maxPossibleTreeError = 1u << 10;
     std::vector<unsigned> possibleNumBins(numPossibleBins);
-    std::vector<std::vector<uint64_t>> matrix(numPossibleBins);
+    std::vector<std::vector<std::pair<uint64_t, unsigned>>> matrix(numPossibleBins);
 
     // TODO: replace matrix by this!!!
     std::vector<unsigned> lastRow(numPossibleBins);
@@ -328,7 +328,9 @@ class Builder {
 
     for (unsigned index = 0; index != numPossibleBins; ++index) {
       possibleNumBins[index] = (1u << (index + 1));
-      matrix[index].assign(1 + maxPossibleTreeError, 0);
+
+      // Consider `1 + maxPossibleTreeError` as well. This field is needed for the exact number of the number of nodes.
+      matrix[index].assign(2 + maxPossibleTreeError, {0, 0});
     }
 
     // TODO: Boost: filter those intervals with error < min possible error across best configs
@@ -345,6 +347,8 @@ class Builder {
           if (level % computeLog(currNumBins) == 0) {
             for (unsigned pos = 0, limit = histogram[side].first; pos != limit; ++pos) {
               auto interval = histogram[side].second[pos];
+
+              // Does this interval breach the max error?
               if (interval.second - interval.first + 1 > bestConfigurations[index].treeMaxError)
                 ++bestConfigurations[index].numNodes;
             }
@@ -392,14 +396,18 @@ class Builder {
                 auto interval = histogram[side].second[ptr];
                 // [first, second[ also takes into consideration the `first-1`th element.
                 // This is due to `lcp`-array, which takes the previous element into consideration.
-                // That's why `second` - `first` + 1.
-                //if (interval.second <= interval.first) {
-                //  std::cerr << "baaa: " << std::endl;
-                //  exit(0);
-                //}
+                // That's why: `second` - `first` + 1.
                 assert(interval.second > interval.first);
-                auto intervalSize = interval.second - interval.first + 1;
-                matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)] += intervalSize;
+                unsigned intervalSize = interval.second - interval.first + 1;
+                
+                // Add the length of the interval to all deltas < `intervalSize.
+                matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)].first += intervalSize;
+                
+                // Does the interval breach the max error, i.e. > max error?
+                // Then all deltas > `intervalSize` should receive a `+`.
+                // Non-trivial operation, since `intervalSize` + 1 might exceed `std::numeric_limits<unsigned>::max()`.
+                if (level != lg)
+                  matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)].second++;
               }
               continue;
             }
@@ -499,9 +507,6 @@ class Builder {
       // And compute.
       for (unsigned level = 1; level <= lg; ++level) {
         std::cerr << "level=" << level << std::endl;
-        // First store the previous level.
-        if (phase)
-          StoreLevel(level - 1);
 
         // Init the next row of the histogram.
         side = 1 - side;
@@ -533,22 +538,25 @@ class Builder {
 
     // Build the prefix sums.
     for (unsigned index = 0; index != numPossibleBins; ++index) {
+      // Finalize statistics in a backward pass.
+      // This pass simply represents the computation of prefix sums.
       unsigned localBest = maxPossibleTreeError;
-      uint64_t localMinCost = matrix[index][maxPossibleTreeError] + computeLog(maxPossibleTreeError, true);
-      for (unsigned backPtr = maxPossibleTreeError; backPtr; --backPtr) {
-        matrix[index][backPtr - 1] += matrix[index][backPtr];
-        if (matrix[index][backPtr - 1] + computeLog(backPtr - 1, true) < localMinCost) {
-          localMinCost = matrix[index][backPtr - 1] + computeLog(backPtr - 1, true);
+      uint64_t localMinCost = matrix[index][localBest].first + computeLog(localBest, true);
+      for (unsigned backPtr = maxPossibleTreeError; backPtr != 1; --backPtr) {
+        matrix[index][backPtr - 1].first += matrix[index][backPtr].first;
+        matrix[index][backPtr - 1].second += matrix[index][backPtr].second;
+        if (auto tmp = matrix[index][backPtr - 1].first + computeLog(backPtr - 1, true); tmp < localMinCost) {
+          localMinCost = tmp;
           localBest = backPtr - 1;
         }
       }
-      double localAvg = 1.0 * localMinCost / spline_points_.size();
-      bestConfigurations[index] = TreeStats(localBest, localAvg);
-      std::cerr << "numBins=" << possibleNumBins[index] << " localAvg=" << localAvg << " localBest=" << localBest << std::endl;
-    }
 
-    bestConfigurations[1].treeMaxError = 2;
-    BuildStatistics(1);
+      // Compute the average tree-depth.
+      double localAvg = 1.0 * localMinCost / spline_points_.size();
+      
+      // Consider also the root, which has not been taken into account in the number of nodes.
+      bestConfigurations[index] = TreeStats(localBest, localAvg, 1 + matrix[index][localBest].second);
+    }
 
     std::cerr << "Statistics! " << std::endl;
     for (unsigned index = 0; index != numPossibleBins; ++index) {
