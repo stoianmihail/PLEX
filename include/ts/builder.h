@@ -262,8 +262,8 @@ class Builder {
 
     const auto AddNewInterval = [&](Interval interval) -> void {
       // Empty interval?
-      //f (interval.first == interval.second)
-      //  return;
+      if (interval.first == interval.second)
+        return;
       histogram[side].second[histogram[side].first++] = interval;
     };
 
@@ -333,24 +333,35 @@ class Builder {
 
     // TODO: Boost: filter those intervals with error < min possible error across best configs
 
-    std::unordered_map<unsigned, std::pair<unsigned, std::vector<Interval>>> storage;
+    uint64_t activeMask = 0;
+    //std::vector<std::pair<unsigned, std::vector<Interval>>>> storage(1 + lg);
     const auto BuildStatistics = [&](unsigned phase) -> void {
       // TODO: erase those levels which are not referenced anymore!!!!!
-      const auto StoreLevel = [&](unsigned level) -> void {
-        bool first = true;
+      const auto StoreLevel = [&](unsigned level) -> void {  
+        //bool first = true;
         for (unsigned index = 0; index != numPossibleBins; ++index) {
+          // TODO: PARALLEIZE with SIMD!
           auto currNumBins = possibleNumBins[index];
           if (level % computeLog(currNumBins) == 0) {
+            for (unsigned pos = 0, limit = histogram[side].first; pos != limit; ++pos) {
+              auto interval = histogram[side].second[pos];
+              if (interval.second - interval.first + 1 > bestConfigurations[index].treeMaxError)
+                ++bestConfigurations[index].numNodes;
+            }
+          }
+        }
+        /*
             //std::cerr << "in store level!" << std::endl;
             //std::cerr << "level=" << level << " should be kept for currNumbis=" << currNumBins << std::endl;
             if (first) {
               storage[level].first = histogram[side].first;
               storage[level].second = histogram[side].second;
+              activeMask |= (1u << level);
             }
             lastRow[index] = level;
             first = false;
           }
-        }
+        }*/
       };
       
       const auto DebugLevel = [&](unsigned level) -> void {
@@ -392,7 +403,9 @@ class Builder {
               }
               continue;
             }
-
+          }
+        }
+/*
             // Second phase.
             auto rowPtr = 0;
             std::optional<unsigned> prevRowPtr = std::nullopt;
@@ -429,6 +442,7 @@ class Builder {
             // TODO: complete the for-loop?
           }
         }
+        */
               /*  
 #if 0 
             // Consume all intervals.
