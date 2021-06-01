@@ -17,4 +17,17 @@ struct SearchBound {
   size_t end;  // Exclusive.
 };
 
+struct TreeStats {
+  TreeStats() {}
+  
+  TreeStats(unsigned treeMaxError, double cost, unsigned numNodes = 0)
+    : treeMaxError(treeMaxError),
+      cost(cost),
+      numNodes(numNodes) {}
+
+  unsigned treeMaxError;
+  double cost;
+  unsigned numNodes;
+};
+
 }  // namespace ts
