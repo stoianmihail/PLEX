@@ -262,8 +262,8 @@ class Builder {
 
     const auto AddNewInterval = [&](Interval interval) -> void {
       // Empty interval?
-      if (interval.first == interval.second)
-        return;
+      //f (interval.first == interval.second)
+      //  return;
       histogram[side].second[histogram[side].first++] = interval;
     };
 
@@ -292,7 +292,7 @@ class Builder {
       //std::cerr << "ptrInSorted=" << ptrInSorted << " vs sorted.size()=" << sorted.size() << std::endl;
       // TODO: is this fine?
       if (ptrInSorted == sorted.size()) {
-        std::cerr << "already here!" << std::endl;
+        //std::cerr << "already here!" << std::endl;
         return;
       }
 
@@ -335,13 +335,14 @@ class Builder {
 
     std::unordered_map<unsigned, std::pair<unsigned, std::vector<Interval>>> storage;
     const auto BuildStatistics = [&](unsigned phase) -> void {
+      // TODO: erase those levels which are not referenced anymore!!!!!
       const auto StoreLevel = [&](unsigned level) -> void {
         bool first = true;
         for (unsigned index = 0; index != numPossibleBins; ++index) {
           auto currNumBins = possibleNumBins[index];
           if (level % computeLog(currNumBins) == 0) {
-            std::cerr << "in store level!" << std::endl;
-            std::cerr << "level=" << level << " should be kept for currNumbis=" << currNumBins << std::endl;
+            //std::cerr << "in store level!" << std::endl;
+            //std::cerr << "level=" << level << " should be kept for currNumbis=" << currNumBins << std::endl;
             if (first) {
               storage[level].first = histogram[side].first;
               storage[level].second = histogram[side].second;
@@ -352,6 +353,15 @@ class Builder {
         }
       };
       
+      const auto DebugLevel = [&](unsigned level) -> void {
+        std::cerr << "---------------- " << level << " ------------------" << std::endl; 
+        for (unsigned ptr = 0, limit = histogram[side].first; ptr != limit; ++ptr) {
+          auto interval = histogram[side].second[ptr];
+          std::cerr << print(interval) << ",";
+        }
+        std::cerr << std::endl;
+      };
+
       const auto ConsumeLevel = [&](unsigned level) -> void {
         for (unsigned index = 0; index != numPossibleBins; ++index) {
           auto currNumBins = possibleNumBins[index];
@@ -372,10 +382,10 @@ class Builder {
                 // [first, second[ also takes into consideration the `first-1`th element.
                 // This is due to `lcp`-array, which takes the previous element into consideration.
                 // That's why `second` - `first` + 1.
-                if (interval.second <= interval.first) {
-                  std::cerr << "baaa: " << std::endl;
-                  exit(0);
-                }
+                //if (interval.second <= interval.first) {
+                //  std::cerr << "baaa: " << std::endl;
+                //  exit(0);
+                //}
                 assert(interval.second > interval.first);
                 auto intervalSize = interval.second - interval.first + 1;
                 matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)] += intervalSize;
@@ -388,10 +398,16 @@ class Builder {
             std::optional<unsigned> prevRowPtr = std::nullopt;
             for (unsigned ptr = 0, limit = histogram[side].first; ptr != limit; ++ptr) {
               auto interval = histogram[side].second[ptr];
+              //if (verbose) std::cerr << "interval=" << print(interval) << std::endl;
+
               const auto& row = storage[lastRow[index]].second;
+              //if(verbose) std::cerr << "dai: " << row[rowPtr].second << std::endl;
               while ((rowPtr != storage[lastRow[index]].first) && (row[rowPtr].second < interval.second)) {
                 ++rowPtr;
               }
+
+
+              //if (verbose) std::cerr << "now: rowPtr=" << rowPtr << std::endl;
 
               if (interval.first < row[rowPtr].first) {
                 std::cerr << "BAAAAAAAAAAAAAAAAA sth wrong!" << std::endl;
@@ -402,7 +418,7 @@ class Builder {
                 auto parentInterval = row[rowPtr];
                 auto parentIntervalSize = parentInterval.second - parentInterval.first + 1;
 
-                if (verbose) std::cerr << "parentIndex=" << parentIndex << " size=" << parentIntervalSize << std::endl;
+                //if (verbose) std::cerr << "rowPtr=" << rowPtr << " size=" << parentIntervalSize << std::endl;
 
                 if (parentIntervalSize > bestConfigurations[index].treeMaxError) {
                   ++bestConfigurations[index].numNodes;
@@ -410,6 +426,7 @@ class Builder {
               }
               prevRowPtr = rowPtr;
             }
+            // TODO: complete the for-loop?
           }
         }
               /*  
@@ -469,7 +486,8 @@ class Builder {
       for (unsigned level = 1; level <= lg; ++level) {
         std::cerr << "level=" << level << std::endl;
         // First store the previous level.
-        StoreLevel(level - 1);
+        if (phase)
+          StoreLevel(level - 1);
 
         // Init the next row of the histogram.
         side = 1 - side;
@@ -482,6 +500,7 @@ class Builder {
 
         // Finally, consume the current level.
         ConsumeLevel(level);
+        //DebugLevel(level);
       }
     };
 
