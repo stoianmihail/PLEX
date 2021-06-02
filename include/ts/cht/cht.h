@@ -46,6 +46,10 @@ class CompactHistTree {
     }
   }
 
+  size_t GetPureSize() const {
+    return table_.size();
+  }
+
   // Returns the size in bytes.
   size_t GetSize() const {
     return sizeof(*this) + table_.size() * sizeof(unsigned);

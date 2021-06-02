@@ -6,6 +6,8 @@
 #include <optional>
 #include <unordered_map>
 
+#include <fstream>
+
 #include "cht/builder.h"
 #include "cht/cht.h"
 #include "common.h"
@@ -18,12 +20,13 @@ template <class KeyType>
 class Builder {
  public:
   Builder(KeyType min_key, KeyType max_key, size_t spline_max_error,
-          size_t num_bins, size_t tree_max_error, bool single_pass = false,
+          size_t num_bins, size_t tree_max_error, bool compute_stats, bool single_pass = false,
           bool use_cache = false)
       : min_key_(min_key),
         max_key_(max_key),
         spline_max_error_(spline_max_error),
         tree_max_error_(tree_max_error),
+        compute_stats_(compute_stats),
         curr_num_keys_(0),
         curr_num_distinct_keys_(0),
         prev_key_(min_key),
@@ -49,12 +52,14 @@ class Builder {
     if (curr_num_keys_ > 0 && spline_points_.back().x != prev_key_)
       AddKeyToSpline(prev_key_, prev_position_);
 
-    ComputeStatistics();
+    if (compute_stats_) {
+      ComputeStatistics();
+    }
 
     // Finalize CHT
     auto cht_ = chtb_.Finalize();
 
-    std::cerr << "finalize cht!" << std::endl;
+    std::cerr << "finalize cht: pure_size=" << cht_.GetPureSize() << std::endl;
 
     // And return the read-only instance
     return TrieSpline<KeyType>(min_key_, max_key_, curr_num_keys_,
@@ -321,9 +326,6 @@ class Builder {
     static constexpr unsigned maxPossibleTreeError = 1u << 10;
     std::vector<unsigned> possibleNumBins(numPossibleBins);
     std::vector<std::vector<std::pair<uint64_t, unsigned>>> matrix(numPossibleBins);
-
-    // TODO: replace matrix by this!!!
-    std::vector<unsigned> lastRow(numPossibleBins);
     std::vector<TreeStats> bestConfigurations(numPossibleBins);
 
     for (unsigned index = 0; index != numPossibleBins; ++index) {
@@ -333,41 +335,8 @@ class Builder {
       matrix[index].assign(2 + maxPossibleTreeError, {0, 0});
     }
 
-    // TODO: Boost: filter those intervals with error < min possible error across best configs
-
-    uint64_t activeMask = 0;
-    //std::vector<std::pair<unsigned, std::vector<Interval>>>> storage(1 + lg);
-    const auto BuildStatistics = [&](unsigned phase) -> void {
-      // TODO: erase those levels which are not referenced anymore!!!!!
-      const auto StoreLevel = [&](unsigned level) -> void {  
-        //bool first = true;
-        for (unsigned index = 0; index != numPossibleBins; ++index) {
-          // TODO: PARALLEIZE with SIMD!
-          auto currNumBins = possibleNumBins[index];
-          if (level % computeLog(currNumBins) == 0) {
-            for (unsigned pos = 0, limit = histogram[side].first; pos != limit; ++pos) {
-              auto interval = histogram[side].second[pos];
-
-              // Does this interval breach the max error?
-              if (interval.second - interval.first + 1 > bestConfigurations[index].treeMaxError)
-                ++bestConfigurations[index].numNodes;
-            }
-          }
-        }
-        /*
-            //std::cerr << "in store level!" << std::endl;
-            //std::cerr << "level=" << level << " should be kept for currNumbis=" << currNumBins << std::endl;
-            if (first) {
-              storage[level].first = histogram[side].first;
-              storage[level].second = histogram[side].second;
-              activeMask |= (1u << level);
-            }
-            lastRow[index] = level;
-            first = false;
-          }
-        }*/
-      };
-      
+    const auto BuildStatistics = [&]() -> void {
+#if 0
       const auto DebugLevel = [&](unsigned level) -> void {
         std::cerr << "---------------- " << level << " ------------------" << std::endl; 
         for (unsigned ptr = 0, limit = histogram[side].first; ptr != limit; ++ptr) {
@@ -376,6 +345,7 @@ class Builder {
         }
         std::cerr << std::endl;
       };
+#endif
 
       const auto ConsumeLevel = [&](unsigned level) -> void {
         for (unsigned index = 0; index != numPossibleBins; ++index) {
@@ -383,121 +353,27 @@ class Builder {
           auto verbose = (index == 1);
 
           // Does this number of bins benefit from this level?
-          // TODO: optimize this condition!!! (preprocess the number of bins for each level)
-          //std::cerr << "currNumBins=" << currNumBins << " log=" << computeLog(currNumBins) << std::endl;
           if (level % computeLog(currNumBins) == 0) {
-  #if DEBUG
-            std::cerr << "Consume level=" << level << std::endl;
-            std::cerr << "currNumbins=" << currNumBins << std::endl;
-  #endif
-            // First phase?
-            if (!phase) {
-              for (unsigned ptr = 0, limit = histogram[side].first; ptr != limit; ++ptr) {
-                auto interval = histogram[side].second[ptr];
-                // [first, second[ also takes into consideration the `first-1`th element.
-                // This is due to `lcp`-array, which takes the previous element into consideration.
-                // That's why: `second` - `first` + 1.
-                assert(interval.second > interval.first);
-                unsigned intervalSize = interval.second - interval.first + 1;
-                
-                // Add the length of the interval to all deltas < `intervalSize.
-                matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)].first += intervalSize;
-                
-                // Does the interval breach the max error, i.e. > max error?
-                // Then all deltas > `intervalSize` should receive a `+`.
-                // Non-trivial operation, since `intervalSize` + 1 might exceed `std::numeric_limits<unsigned>::max()`.
-                if (level != lg)
-                  matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)].second++;
-              }
-              continue;
-            }
-          }
-        }
-/*
-            // Second phase.
-            auto rowPtr = 0;
-            std::optional<unsigned> prevRowPtr = std::nullopt;
-            for (unsigned ptr = 0, limit = histogram[side].first; ptr != limit; ++ptr) {
-              auto interval = histogram[side].second[ptr];
-              //if (verbose) std::cerr << "interval=" << print(interval) << std::endl;
 
-              const auto& row = storage[lastRow[index]].second;
-              //if(verbose) std::cerr << "dai: " << row[rowPtr].second << std::endl;
-              while ((rowPtr != storage[lastRow[index]].first) && (row[rowPtr].second < interval.second)) {
-                ++rowPtr;
-              }
-
-
-              //if (verbose) std::cerr << "now: rowPtr=" << rowPtr << std::endl;
-
-              if (interval.first < row[rowPtr].first) {
-                std::cerr << "BAAAAAAAAAAAAAAAAA sth wrong!" << std::endl;
-                exit(-1);
-              }
-
-              if ((!prevRowPtr.has_value()) || (rowPtr != prevRowPtr.value())) {
-                auto parentInterval = row[rowPtr];
-                auto parentIntervalSize = parentInterval.second - parentInterval.first + 1;
-
-                //if (verbose) std::cerr << "rowPtr=" << rowPtr << " size=" << parentIntervalSize << std::endl;
-
-                if (parentIntervalSize > bestConfigurations[index].treeMaxError) {
-                  ++bestConfigurations[index].numNodes;
-                }
-              }
-              prevRowPtr = rowPtr;
-            }
-            // TODO: complete the for-loop?
-          }
-        }
-        */
-              /*  
-#if 0 
-            // Consume all intervals.
-            
-
-
-            std::optional<unsigned> prevParent = std::nullopt;
-            if (verbose) std::cerr << "level=" << level << " index=" << index << " phase=" << phase << std::endl;
             for (unsigned ptr = 0, limit = histogram[side].first; ptr != limit; ++ptr) {
               auto interval = histogram[side].second[ptr];
               // [first, second[ also takes into consideration the `first-1`th element.
               // This is due to `lcp`-array, which takes the previous element into consideration.
-              // That's why `second` - `first` + 1.
-              if (interval.second <= interval.first) {
-                std::cerr << "baaa: " << std::endl;
-                exit(0);
-              }
+              // That's why: `second` - `first` + 1.
               assert(interval.second > interval.first);
-              auto intervalSize = interval.second - interval.first + 1;
-              if (!phase) {
-                matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)] += intervalSize;
-              } else {
-                if (verbose) std::cerr << "lastRow=" << lastRow[index] << std::endl;
-                if (verbose) std::cerr << "prevParent=" << (prevParent.has_value() ? prevParent.value() : -1) << std::endl;
-                if ((!prevParent.has_value()) || (parentIndex != prevParent.value())) {
-                  assert(parentIndex > prevParent.value());
-                  auto [_, parentInterval] = histogram[1 - side].second[parentIndex];
-                  auto parentIntervalSize = parentInterval.second - parentInterval.first + 1;
-
-                  if (verbose) std::cerr << "parentIndex=" << parentIndex << " size=" << parentIntervalSize << std::endl;
-
-                  if (parentIntervalSize > bestConfigurations[index].treeMaxError) {
-                    ++bestConfigurations[index].numNodes;
-                  }
-                }
-                prevParent = parentIndex;
-              }
-  #if DEBUG
-              std::cerr << "take interval=" << print(histogram[side].second[ptr]) << " intervalSize=" << intervalSize << std::endl;
-  #endif
+              unsigned intervalSize = interval.second - interval.first + 1;
+              
+              // Add the length of the interval to all deltas < `intervalSize.
+              matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)].first += intervalSize;
+              
+              // Does the interval breach the max error, i.e. > max error?
+              // Then all deltas > `intervalSize` should receive a `+`.
+              // Non-trivial operation, since `intervalSize` + 1 might exceed `std::numeric_limits<unsigned>::max()`.
+              if (level != lg)
+                matrix[index][std::min(intervalSize - 1, maxPossibleTreeError)].second++;
             }
-  #if DEBUG
-            std::cerr << "--------------------------------" << std::endl;
-
           }
         }
-#endif*/
       };
 
       // Init the histogram.
@@ -519,22 +395,10 @@ class Builder {
 
         // Finally, consume the current level.
         ConsumeLevel(level);
-        //DebugLevel(level);
       }
     };
 
-    BuildStatistics(0);
-
-#if 0
-    for (unsigned index = 0; index != numPossibleBins; ++index) {
-      std::cerr << "num_bins=" << possibleNumBins[index] << std::endl << "\t";
-      for (unsigned ptr = 0; ptr <= maxPossibleTreeError; ++ptr) {
-        std::cerr << matrix[index][ptr] << ", "; 
-      }
-      std::cerr << std::endl;
-    }
-#endif
-
+    BuildStatistics();
 
     // Build the prefix sums.
     for (unsigned index = 0; index != numPossibleBins; ++index) {
@@ -552,11 +416,24 @@ class Builder {
       }
 
       // Compute the average tree-depth.
-      double localAvg = 1.0 * localMinCost / spline_points_.size();
+      double avg = 1.0 * matrix[index][localBest].first / spline_points_.size() + computeLog(localBest, true);
       
       // Consider also the root, which has not been taken into account in the number of nodes.
-      bestConfigurations[index] = TreeStats(localBest, localAvg, 1 + matrix[index][localBest].second);
+      bestConfigurations[index] = TreeStats(localBest, avg, 1 + matrix[index][localBest].second);
     }
+
+#if 1
+    std::ofstream output("results.log");
+    output << "beta,delta,time,memory" << std::endl;
+    for (unsigned index = 0; index != numPossibleBins; ++index) {
+      auto currNumBins = possibleNumBins[index];
+      for (unsigned delta = 1; delta <= maxPossibleTreeError; ++delta) {
+        double time = 1.0 * matrix[index][delta].first / spline_points_.size() + computeLog(delta, true);
+        size_t memory = (1 + matrix[index][delta].second) * currNumBins; 
+        output << currNumBins << "," << delta << "," << time << "," << memory << std::endl;
+      }
+    }
+#endif
 
     std::cerr << "Statistics! " << std::endl;
     for (unsigned index = 0; index != numPossibleBins; ++index) {
@@ -569,6 +446,7 @@ class Builder {
   const KeyType max_key_;
   const size_t spline_max_error_;
   const size_t tree_max_error_;
+  const bool compute_stats_;
 
   std::vector<Coord<KeyType>> spline_points_;
 

@@ -1,10 +1,9 @@
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
-#include <limits>
 #include <map>
 
-#include "include/rs/multi_map.h"
 #include "include/ts/builder.h"
 #include "include/ts/ts.h"
 
@@ -114,16 +113,29 @@ pair<uint64_t, uint64_t> GetTuning(const string& data_filename,
 
   // Facebook
   if (dataset == "fb_200M_uint64") {
-    Configs configs = {{8, 140}, {8, 140}, {8, 140}, {8, 140}, {10, 90},
-                       {22, 90}, {24, 70}, {26, 80}, {26, 7},  {28, 80}};
-    return configs[10 - size_scale];
+    Configs configs = {{1u << 1, 1024}, {1u << 2, 1024}, {1u << 3, 1024}, {1u << 4, 1024}, {1u << 5, 1024}, {1u << 6, 1024}, {1u << 7, 1024}, {1u << 8, 1024}, {1u << 9, 1024}, {1u << 10, 1024}, {1u << 11, 1024}, {1u << 12, 1024}, {1u << 13, 1024}, {1u << 14, 1024}, {1u << 15, 1024}, {1u << 16, 1024}, {1u << 17, 1024}, {1u << 18, 1024}, {1u << 19, 1024}, {1u << 20, 1024}};
+    //for (unsigned index = 1; index <= 20; ++index)
+    //    configs.push_back({1u << index, 1024});
+    //Configs configs = {{2, 1024}, {4, 1024}, {} 64, 1024}, {65536, 1024}, {32, 1024}, {262144, }, {10, 90},
+                       //{22, 90}, {24, 70}, {26, 80}, {26, 7},  {28, 80}};
+    return configs[20 - size_scale];
   }
 
   // OSM
   if (dataset == "osm_cellids_200M_uint64") {
+    #if 0
     Configs configs = {{20, 160}, {20, 160}, {20, 160}, {20, 160}, {20, 80},
                        {24, 40},  {24, 20},  {26, 8},   {26, 3},   {28, 2}};
     return configs[10 - size_scale];
+    #else
+  Configs configs = {{1u << 1, 256}, {1u << 2, 256}, {1u << 3, 256}, {1u << 4, 256}, {1u << 5, 256}, {1u << 6, 256}, {1u << 7, 256}, {1u << 8, 256}, {1u << 9, 256}, {1u << 10, 256}, {1u << 11, 256}, {1u << 12, 256}, {1u << 13, 256}, {1u << 14, 256}, {1u << 15, 256}, {1u << 16, 256}, {1u << 17, 256}, {1u << 18, 256}, {1u << 19, 256}, {1u << 20, 256}};
+    //for (unsigned index = 1; index <= 20; ++index)
+    //    configs.push_back({1u << index, 1024});
+    //Configs configs = {{2, 1024}, {4, 1024}, {} 64, 1024}, {65536, 1024}, {32, 1024}, {262144, }, {10, 90},
+                       //{22, 90}, {24, 70}, {26, 80}, {26, 7},  {28, 80}};
+    return configs[20 - size_scale];
+  
+    #endif
   }
 
   if (dataset == "osm_cellids_400M_uint64") {
@@ -155,6 +167,7 @@ pair<uint64_t, uint64_t> GetTuning(const string& data_filename,
   throw;
 }
 }  // namespace rs_manual_tuning
+
 
 namespace util {
 
@@ -198,68 +211,23 @@ static vector<pair<KeyType, uint64_t>> add_values(const vector<KeyType>& keys) {
 namespace {
 
 template <class KeyType, class ValueType>
-class NonOwningMultiMapRS {
+class NonOwningMultiMap {
  public:
   using element_type = pair<KeyType, ValueType>;
 
-  NonOwningMultiMapRS(const vector<element_type>& elements,
-                    size_t num_radix_bits = 18, size_t max_error = 32)
+  NonOwningMultiMap(const vector<element_type>& elements,
+                    const uint32_t spline_max_error, const uint32_t num_bins,
+                    const uint32_t cht_max_error)
       : data_(elements) {
     assert(elements.size() > 0);
 
-    // Create spline builder.
+    // Create builder.
     const auto min_key = data_.front().first;
     const auto max_key = data_.back().first;
-    rs::Builder<KeyType> rsb(min_key, max_key, num_radix_bits, max_error);
+    ts::Builder<KeyType> tsb(min_key, max_key, spline_max_error, num_bins,
+                             cht_max_error, false);
 
-    // Build the radix spline.
-    for (const auto& iter : data_) {
-      rsb.AddKey(iter.first);
-    }
-    rs_ = rsb.Finalize();
-  }
-
-  typename vector<element_type>::const_iterator lower_bound(KeyType key) const {
-    rs::SearchBound bound = rs_.GetSearchBound(key);
-    return ::lower_bound(data_.begin() + bound.begin, data_.begin() + bound.end,
-                         key, [](const element_type& lhs, const KeyType& rhs) {
-                           return lhs.first < rhs;
-                         });
-  }
-
-  uint64_t sum_up(KeyType key) const {
-    uint64_t result = 0;
-    auto iter = lower_bound(key);
-    while (iter != data_.end() && iter->first == key) {
-      result += iter->second;
-      ++iter;
-    }
-    return result;
-  }
-
-  size_t GetSizeInByte() const { return rs_.GetSize(); }
-
- private:
-  const vector<element_type>& data_;
-  rs::RadixSpline<KeyType> rs_;
-};
-
-template <class KeyType, class ValueType>
-class NonOwningMultiMapTS {
- public:
-  using element_type = pair<KeyType, ValueType>;
-
-  NonOwningMultiMapTS(const vector<element_type>& elements,
-                    size_t num_radix_bits = 18, size_t max_error = 32)
-      : data_(elements) {
-    assert(elements.size() > 0);
-
-    // Create spline builder.
-    const auto min_key = data_.front().first;
-    const auto max_key = data_.back().first;
-    ts::Builder<KeyType> tsb(min_key, max_key, max_error, 1u << num_radix_bits, std::numeric_limits<unsigned>::max(), true);
-
-    // Build the radix spline.
+    // Build the index.
     for (const auto& iter : data_) {
       tsb.AddKey(iter.first);
     }
@@ -268,20 +236,29 @@ class NonOwningMultiMapTS {
 
   typename vector<element_type>::const_iterator lower_bound(KeyType key) const {
     ts::SearchBound bound = ts_.GetSearchBound(key);
+#if 0
     return ::lower_bound(data_.begin() + bound.begin, data_.begin() + bound.end,
                          key, [](const element_type& lhs, const KeyType& rhs) {
                            return lhs.first < rhs;
                          });
+#else
+                         return data_.begin() + bound.begin;
+#endif
   }
 
   uint64_t sum_up(KeyType key) const {
+      auto iter = lower_bound(key);
+    
+      #if 0
     uint64_t result = 0;
-    auto iter = lower_bound(key);
     while (iter != data_.end() && iter->first == key) {
       result += iter->second;
-      ++iter;
+      iter++;
     }
     return result;
+    #else
+    return 0;
+    #endif
   }
 
   size_t GetSizeInByte() const { return ts_.GetSize(); }
@@ -297,8 +274,9 @@ struct Lookup {
   uint64_t value;
 };
 
+
 template <class KeyType>
-void RunRS(const string& data_file, const string lookup_file) {
+void Run(const string& data_file, const string lookup_file) {
   // Load data
   vector<KeyType> keys = util::load_data<KeyType>(data_file);
   vector<pair<KeyType, uint64_t>> elements = util::add_values(keys);
@@ -306,59 +284,13 @@ void RunRS(const string& data_file, const string lookup_file) {
       util::load_data<Lookup<KeyType>>(lookup_file);
 
   cout << "data_file,radix,spline,size(MB),build(s),lookup" << std::endl;
-  for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
-    // Get the config for tuning
-    auto tuning = rs_manual_tuning::GetTuning(data_file, size_config);
-
-    // Build RS
-    auto build_begin = chrono::high_resolution_clock::now();
-    NonOwningMultiMapRS<KeyType, uint64_t> map(elements, tuning.first,
-                                             tuning.second);
-    auto build_end = chrono::high_resolution_clock::now();
-    uint64_t build_ns =
-        chrono::duration_cast<chrono::nanoseconds>(build_end - build_begin)
-            .count();
-
-    // Run queries
-    auto lookup_begin = chrono::high_resolution_clock::now();
-    for (const Lookup<KeyType>& lookup_iter : lookups) {
-      uint64_t sum = map.sum_up(lookup_iter.key);
-      if (sum != lookup_iter.value) {
-        cerr << "wrong result!" << endl;
-        throw "error";
-      }
-    }
-    auto lookup_end = chrono::high_resolution_clock::now();
-    uint64_t lookup_ns =
-        chrono::duration_cast<chrono::nanoseconds>(lookup_end - lookup_begin)
-            .count();
-
-    cout << data_file << "," << tuning.first << "," << tuning.second << ","
-       << static_cast<double>(map.GetSizeInByte()) / 1000 / 1000 << ","
-       << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
-       << lookup_ns / lookups.size() << endl;
-  }
-}
-
-template <class KeyType>
-void RunTS(const string& data_file, const string lookup_file) {
-  // Load data
-  vector<KeyType> keys = util::load_data<KeyType>(data_file);
-  vector<pair<KeyType, uint64_t>> elements = util::add_values(keys);
-  vector<Lookup<KeyType>> lookups =
-      util::load_data<Lookup<KeyType>>(lookup_file);
-
-  NonOwningMultiMapTS<KeyType, uint64_t> map(elements, 20, 1);
-
-#if 0
-  cout << "data_file,radix,spline,size(MB),build(s),lookup" << std::endl;
-  for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
+  for (uint32_t size_config = 1; size_config <= 20; ++size_config) {
     // Get the config for tuning
     auto tuning = rs_manual_tuning::GetTuning(data_file, size_config);
 
     // Build TS
     auto build_begin = chrono::high_resolution_clock::now();
-    NonOwningMultiMapTS<KeyType, uint64_t> map(elements, tuning.first,
+    NonOwningMultiMap<KeyType, uint64_t> map(elements, 1, tuning.first,
                                              tuning.second);
     auto build_end = chrono::high_resolution_clock::now();
     uint64_t build_ns =
@@ -369,10 +301,13 @@ void RunTS(const string& data_file, const string lookup_file) {
     auto lookup_begin = chrono::high_resolution_clock::now();
     for (const Lookup<KeyType>& lookup_iter : lookups) {
       uint64_t sum = map.sum_up(lookup_iter.key);
+    
+        #if 0
       if (sum != lookup_iter.value) {
         cerr << "wrong result!" << endl;
         throw "error";
       }
+      #endif
     }
     auto lookup_end = chrono::high_resolution_clock::now();
     uint64_t lookup_ns =
@@ -384,31 +319,25 @@ void RunTS(const string& data_file, const string lookup_file) {
        << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
        << lookup_ns / lookups.size() << endl;
   }
-#endif
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 4) {
-    cerr << "usage: " << argv[0] << " <data_file> <lookup_file> <index(0:rs,1:ts)>" << endl;
+  if (argc != 3) {
+    cerr << "usage: " << argv[0]
+         << " <data_file> <lookup_file>"
+         << endl;
     exit(-1);
   }
-
   const string data_file = argv[1];
   const string lookup_file = argv[2];
-  const uint32_t index_type = atoi(argv[3]);
 
   if (data_file.find("32") != string::npos) {
-    if (index_type == 0)
-      RunRS<uint32_t>(data_file, lookup_file);
-    else
-      RunTS<uint32_t>(data_file, lookup_file);
+    Run<uint32_t>(data_file, lookup_file);
   } else {
-    if (index_type == 0)
-      RunRS<uint64_t>(data_file, lookup_file);
-    else
-      RunTS<uint64_t>(data_file, lookup_file);
+    Run<uint64_t>(data_file, lookup_file);
   }
+
   return 0;
 }

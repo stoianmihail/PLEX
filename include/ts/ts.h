@@ -36,6 +36,7 @@ class TrieSpline {
 
     // Find spline segment with `key` ∈ (spline[index - 1], spline[index]].
     const size_t index = GetSplineSegment(key);
+    #if 0
     const Coord<KeyType> down = spline_points_[index - 1];
     const Coord<KeyType> up = spline_points_[index];
 
@@ -47,6 +48,10 @@ class TrieSpline {
     // Interpolate.
     const double key_diff = key - down.x;
     return std::fma(key_diff, slope, down.y);
+    #else
+
+    return 0;
+    #endif
   }
 
   // Returns a search bound [begin, end) around the estimated position.

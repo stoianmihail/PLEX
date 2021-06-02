@@ -33,7 +33,7 @@ void DebugExample() {
   // Build TS
   uint32_t min = keys.front();
   uint32_t max = keys.back();
-  ts::Builder<uint32_t> tsb(min, max, 0, 4, 2);
+  ts::Builder<uint32_t> tsb(min, max, 0, 4, 2, true);
 
   for (const auto& key : keys) tsb.AddKey(key);
   auto ts = tsb.Finalize();

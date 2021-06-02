@@ -291,8 +291,6 @@ class Builder {
       auto node = nodes.front();
       nodes.pop();
 
-      std::cerr << "pop node=" << node << std::endl;
-
       // Consider each bin and decide whether we should split it.
       unsigned level = tree_[node].first.first;
       KeyType lower = tree_[node].first.second;
