@@ -18,10 +18,12 @@ namespace ts {
 template <class KeyType>
 class Builder {
  public:
-  Builder(KeyType min_key, KeyType max_key, size_t spline_max_error)
+  Builder(KeyType min_key, KeyType max_key, size_t spline_max_error, size_t nb = 0, size_t te = 0)
       : min_key_(min_key),
         max_key_(max_key),
         spline_max_error_(spline_max_error),
+        nb_(nb),
+        te_(te),
         curr_num_keys_(0),
         curr_num_distinct_keys_(0),
         prev_key_(min_key),
@@ -49,12 +51,19 @@ class Builder {
       AddKeyToSpline(prev_key_, prev_position_);
 
     // Find tuning.
+    Statistics tuning;
+    if (nb_ == 0) {
     std::vector<Statistics> statistics;
     ComputeStatistics(statistics);
-    Statistics tuning = InferTuning(statistics);
+    tuning = InferTuning(statistics);
+    }
+    //tuning.numBins = 512;
+    //tuning.treeMaxError = 8;
 
-    tuning.numBins = 512;
-    tuning.treeMaxError = 8;
+    if (nb_) {
+      tuning.numBins = nb_;
+      tuning.treeMaxError = te_;
+    }
 
     std::cerr << "Final tuning:" << std::endl;
     std::cerr << "numBins=" << tuning.numBins << " maxTreeError=" << tuning.treeMaxError << " cost=" << tuning.cost << " space=" << tuning.space << std::endl;
@@ -484,8 +493,8 @@ class Builder {
       const auto elem = statistics[index];
       if (elem.space > space_limit)
         continue;
-      if (elem.numBins > (1u << 10))
-        continue;
+      //if (elem.numBins > (1u << 10))
+      //  continue;
       auto beta = elem.numBins;
       auto delta = elem.treeMaxError;
       if ((delta & (delta - 1)) == 0 || delta == std::numeric_limits<unsigned>::max())
@@ -500,7 +509,7 @@ class Builder {
   const KeyType min_key_;
   const KeyType max_key_;
   const size_t spline_max_error_;
-
+  const size_t nb_, te_;
   std::vector<Coord<KeyType>> spline_points_;
 
   size_t curr_num_keys_;
