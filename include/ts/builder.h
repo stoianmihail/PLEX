@@ -5,6 +5,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <fstream>
 
 #include "cht/builder.h"
 #include "cht/cht.h"
@@ -25,7 +26,9 @@ class Builder {
         curr_num_distinct_keys_(0),
         prev_key_(min_key),
         prev_position_(0),
-        chtb_(min_key, max_key) {}
+        chtb_(min_key, max_key) {
+          std::cerr << "spline_max_error=" << spline_max_error << std::endl;
+        }
 
   // Adds a key. Assumes that keys are stored in a dense array.
   void AddKey(KeyType key) {
@@ -50,18 +53,23 @@ class Builder {
     ComputeStatistics(statistics);
     Statistics tuning = InferTuning(statistics);
 
+    tuning.numBins = 512;
+    tuning.treeMaxError = 8;
+
+    std::cerr << "Final tuning:" << std::endl;
+    std::cerr << "numBins=" << tuning.numBins << " maxTreeError=" << tuning.treeMaxError << " cost=" << tuning.cost << " space=" << tuning.space << std::endl;
+
     // Finalize CHT
     auto cht_ = chtb_.Finalize(tuning.numBins, tuning.treeMaxError);
 
     // And return the read-only instance
-    return TrieSpline<KeyType>(min_key_, max_key_, curr_num_keys_,
-                               spline_max_error_, tree_max_error_,
+    return TrieSpline<KeyType>(min_key_, max_key_, curr_num_keys_, spline_max_error_,
                                std::move(cht_), std::move(spline_points_));
   }
 
  private:
   using Interval = std::pair<unsigned, unsigned>;
-  using TreeStats = ts::TreeStats;
+  using Statistics = ts::Statistics;
 
   static unsigned ComputeLog(uint32_t n, bool round = false) {
     assert(n);
@@ -234,7 +242,6 @@ class Builder {
 
   void AddKeyToCHT(KeyType key) { chtb_.AddKey(key); }
 
-
   void ComputeRadixTableStatistics(std::vector<Statistics>& statistics) {
     static constexpr unsigned maxNumRadixBits = 30;
     
@@ -310,8 +317,10 @@ class Builder {
     std::vector<unsigned> lcp(spline_points_.size());
     std::vector<unsigned> counters(1 + lg);
     lcp[0] = std::numeric_limits<unsigned>::max();
-    for (unsigned index = 1, limit = spline_points_.size(); index != limit; ++index)
-      counters[ExtractLCP(index)]++;
+    for (unsigned index = 1, limit = spline_points_.size(); index != limit; ++index) {
+      lcp[index] = ExtractLCP(index);
+      counters[lcp[index]]++;
+    }
 
     // Sort the lcp-array.
     std::vector<unsigned> offsets(1 + lg);
@@ -387,7 +396,6 @@ class Builder {
     const auto ConsumeLevel = [&](unsigned level) -> void {
       for (unsigned index = 0; index != numPossibleBins; ++index) {
         auto currNumBins = possibleNumBins[index];
-        auto verbose = (index == 1);
 
         // Does this number of bins benefit from this level?
         if (level % ComputeLog(currNumBins) == 0) {
@@ -467,13 +475,22 @@ class Builder {
 
   Statistics InferTuning(std::vector<Statistics>& statistics) {
     assert(!statistics.empty());
-    const size_t space_limit = spline_points_.size * sizeof(Coord<KeyType>);
+    const size_t space_limit = static_cast<size_t>(spline_points_.size()) * sizeof(Coord<KeyType>);
+    
+    std::cerr << "space_limit=" << space_limit << std::endl;
+    
     unsigned bestIndex = 0;
     for (unsigned index = 1, limit = statistics.size(); index != limit; ++index) {
       const auto elem = statistics[index];
       if (elem.space > space_limit)
         continue;
-      if ((elem.cost < statistics[bestIndex].cost) || ((std::fabs(elem.cost - statistics[bestIndex].cost) < 1e-9) && (elem.space < statistics[bestIndex].space)) {
+      if (elem.numBins > (1u << 10))
+        continue;
+      auto beta = elem.numBins;
+      auto delta = elem.treeMaxError;
+      if ((delta & (delta - 1)) == 0 || delta == std::numeric_limits<unsigned>::max())
+        std::cerr << "beta=" << elem.numBins << " delta="<< elem.treeMaxError << " cost=" << elem.cost << " space=" << elem.space << std::endl;
+      if ((elem.cost < statistics[bestIndex].cost) || ((std::fabs(elem.cost - statistics[bestIndex].cost) < 1e-9) && (elem.space < statistics[bestIndex].space))) {
         bestIndex = index;
       }
     }
@@ -483,7 +500,6 @@ class Builder {
   const KeyType min_key_;
   const KeyType max_key_;
   const size_t spline_max_error_;
-  const size_t tree_max_error_;
 
   std::vector<Coord<KeyType>> spline_points_;
 

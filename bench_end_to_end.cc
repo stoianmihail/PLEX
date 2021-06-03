@@ -114,7 +114,7 @@ pair<uint64_t, uint64_t> GetTuning(const string& data_filename,
 
   // Facebook
   if (dataset == "fb_200M_uint64") {
-    Configs configs = {{8, 140}, {8, 140}, {8, 140}, {8, 140}, {10, 90},
+    Configs configs = {{8, 128}, {8, 140}, {8, 140}, {8, 140}, {10, 90},
                        {22, 90}, {24, 70}, {26, 80}, {26, 7},  {28, 80}};
     return configs[10 - size_scale];
   }
@@ -257,7 +257,7 @@ class NonOwningMultiMapTS {
     // Create spline builder.
     const auto min_key = data_.front().first;
     const auto max_key = data_.back().first;
-    ts::Builder<KeyType> tsb(min_key, max_key, max_error, 1u << num_radix_bits, std::numeric_limits<unsigned>::max());
+    ts::Builder<KeyType> tsb(min_key, max_key, max_error);
 
     // Build the radix spline.
     for (const auto& iter : data_) {
@@ -349,7 +349,7 @@ void RunTS(const string& data_file, const string lookup_file) {
       util::load_data<Lookup<KeyType>>(lookup_file);
 
   cout << "data_file,radix,spline,size(MB),build(s),lookup" << std::endl;
-  for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
+  for (uint32_t size_config = 10; size_config <= 10; ++size_config) {
     // Get the config for tuning
     auto tuning = rs_manual_tuning::GetTuning(data_file, size_config);
 

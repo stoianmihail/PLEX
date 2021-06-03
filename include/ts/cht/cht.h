@@ -15,17 +15,17 @@ class CompactHistTree {
  public:
   CompactHistTree() = default;
 
-  CompactHistTree(KeyType min_key, KeyType max_key, size_t num_keys,
+  CompactHistTree(bool single_layer, KeyType min_key, KeyType max_key, size_t num_keys,
                   size_t num_bins, size_t log_num_bins, size_t max_error,
-                  size_t shift, bool single_layer, std::vector<unsigned> table)
-      : min_key_(min_key),
+                  size_t shift, std::vector<unsigned> table)
+      : single_layer_(single_layer),
+        min_key_(min_key),
         max_key_(max_key),
         num_keys_(num_keys),
         num_bins_(num_bins),
         log_num_bins_(log_num_bins),
         max_error_(max_error),
         shift_(shift),
-        single_layer_(single_layer),
         table_(std::move(table)) {}
 
   // Returns a search bound [`begin`, `end`) around the estimated position.
@@ -74,6 +74,7 @@ class CompactHistTree {
     } while (true);
   }
 
+  bool single_layer_;
   KeyType min_key_;
   KeyType max_key_;
   size_t num_keys_;
@@ -81,8 +82,7 @@ class CompactHistTree {
   size_t log_num_bins_;
   size_t max_error_;
   size_t shift_;
-  bool single_layer_;
-
+  
   std::vector<unsigned> table_;
 };
 

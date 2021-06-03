@@ -17,8 +17,7 @@ void TrieSplineExample() {
   // Build TS
   uint64_t min = keys.front();
   uint64_t max = keys.back();
-  ts::Builder tsb(min, max, /*spline_max_error=*/32, /*num_bins=*/32,
-                  /*tree_max_error=*/16);
+  ts::Builder<uint64_t> tsb(min, max, /*spline_max_error=*/32);
 
   for (const auto& key : keys) tsb.AddKey(key);
   auto ts = tsb.Finalize();

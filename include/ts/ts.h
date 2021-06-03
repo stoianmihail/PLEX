@@ -16,15 +16,14 @@ class TrieSpline {
  public:
   TrieSpline() = default;
 
-  TrieSpline(KeyType min_key, KeyType max_key, size_t num_keys,
-             size_t spline_max_error, size_t tree_max_error,
+  TrieSpline(KeyType min_key, KeyType max_key,
+             size_t num_keys, size_t spline_max_error,
              cht::CompactHistTree<KeyType> cht,
              std::vector<ts::Coord<KeyType>> spline_points)
       : min_key_(min_key),
         max_key_(max_key),
         num_keys_(num_keys),
         spline_max_error_(spline_max_error),
-        tree_max_error_(tree_max_error),
         spline_points_(std::move(spline_points)),
         cht_(std::move(cht)) {}
 
@@ -74,8 +73,8 @@ class TrieSpline {
     // Narrow search range using CHT.
     const auto range = cht_.GetSearchBound(key);
 
-    // TODO: should be done at compile time!
-    if (tree_max_error_ < 32) {
+    // Linear search?
+    if (range.end - range.begin < 32) {
       // Do linear search over narrowed range.
       uint32_t current = range.begin;
       while (spline_points_[current].x < key) ++current;
@@ -96,7 +95,6 @@ class TrieSpline {
   KeyType max_key_;
   size_t num_keys_;
   size_t spline_max_error_;
-  size_t tree_max_error_;
 
   std::vector<ts::Coord<KeyType>> spline_points_;
   cht::CompactHistTree<KeyType> cht_;

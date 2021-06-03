@@ -125,11 +125,11 @@ void test(std::string name) {
 
   size_t spline_max_error_ = 32, num_bins_ = 64, tree_max_error_ = 16;
   ts::Builder<uint64_t> tsbSinglePassWithoutCache(
-      min, max, spline_max_error_, num_bins_, tree_max_error_, true, false);
+      min, max, spline_max_error_);//, num_bins_, tree_max_error_, true, false);
   ts::Builder<uint64_t> tsbMultiplePassWithoutCache(
-      min, max, spline_max_error_, num_bins_, tree_max_error_, false, false);
+      min, max, spline_max_error_);//, num_bins_, tree_max_error_, false, false);
   ts::Builder<uint64_t> tsbMultiplePassWithCache(
-      min, max, spline_max_error_, num_bins_, tree_max_error_, false, true);
+      min, max, spline_max_error_);//, num_bins_, tree_max_error_, false, true);
 
   for (auto key : keys) {
     tsbSinglePassWithoutCache.AddKey(key);
