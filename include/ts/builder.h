@@ -18,12 +18,13 @@ namespace ts {
 template <class KeyType>
 class Builder {
  public:
-  Builder(KeyType min_key, KeyType max_key, size_t spline_max_error, size_t nb = 0, size_t te = 0)
+  Builder(KeyType min_key, KeyType max_key, size_t spline_max_error, size_t nb = 0, size_t te = 0, bool trick=false)
       : min_key_(min_key),
         max_key_(max_key),
         spline_max_error_(spline_max_error),
         nb_(nb),
         te_(te),
+        trick_(trick),
         curr_num_keys_(0),
         curr_num_distinct_keys_(0),
         prev_key_(min_key),
@@ -52,15 +53,15 @@ class Builder {
 
     // Find tuning.
     Statistics tuning;
-    if (nb_ == 0) {
-    std::vector<Statistics> statistics;
-    ComputeStatistics(statistics);
-    tuning = InferTuning(statistics);
+    if (trick_) {
+      std::vector<Statistics> statistics;
+      ComputeStatistics(statistics);
+      tuning = InferTuning(statistics);
     }
     //tuning.numBins = 512;
     //tuning.treeMaxError = 8;
 
-    if (nb_) {
+    if (!trick_) {
       tuning.numBins = nb_;
       tuning.treeMaxError = te_;
     }
@@ -484,9 +485,27 @@ class Builder {
 
   Statistics InferTuning(std::vector<Statistics>& statistics) {
     assert(!statistics.empty());
-    const size_t space_limit = static_cast<size_t>(spline_points_.size()) * sizeof(Coord<KeyType>);
     
-    std::cerr << "space_limit=" << space_limit << std::endl;
+    const auto debug = [&](Statistics elem) -> std::string {
+      return "elem=(num_bins=" + std::to_string(elem.numBins) + ",error=" + std::to_string(elem.treeMaxError) + ",cost="+ std::to_string(elem.cost) + ",space=" + std::to_string(elem.space) + ")"; 
+    };
+
+    size_t space_limit = static_cast<size_t>(spline_points_.size()) * sizeof(Coord<KeyType>);
+    
+    Statistics save;
+    if (trick_) {
+      for (unsigned index = 1, limit = statistics.size(); index != limit; ++index) {
+        auto elem = statistics[index];
+        if (elem.numBins == nb_ && elem.treeMaxError == te_) {
+          std::cerr << "found! " << debug(elem) << std::endl;
+          save = elem;
+          space_limit = elem.space;
+          break;
+        }
+      }
+    }
+
+    std::cerr << "trick=" << trick_ << " space_limit=" << space_limit << std::endl;
     
     unsigned bestIndex = 0;
     for (unsigned index = 1, limit = statistics.size(); index != limit; ++index) {
@@ -503,6 +522,8 @@ class Builder {
         bestIndex = index;
       }
     }
+    std::cerr << "before: " << debug(save) << std::endl;
+    std::cerr << "now: " << debug(statistics[bestIndex]) << std::endl;//"best=" << "num_bins=" << statistics[bestIndex].numBins << " error=" << statistics[bestIndex].treeMaxError << " cost=" << statistics[bestIndex]
     return statistics[bestIndex];
   }
 
@@ -510,6 +531,7 @@ class Builder {
   const KeyType max_key_;
   const size_t spline_max_error_;
   const size_t nb_, te_;
+  bool trick_;
   std::vector<Coord<KeyType>> spline_points_;
 
   size_t curr_num_keys_;

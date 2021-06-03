@@ -307,7 +307,7 @@ class NonOwningMultiMapTS {
     // Create spline builder.
     const auto min_key = data_.front().first;
     const auto max_key = data_.back().first;
-    ts::Builder<KeyType> tsb(min_key, max_key, max_error, num_bins, tree_max_error);
+    ts::Builder<KeyType> tsb(min_key, max_key, max_error, num_bins, tree_max_error, false);
 
     // Build the radix spline.
     for (const auto& iter : data_) {
@@ -347,14 +347,14 @@ class NonOwningMultiMapFreeTS {
   using element_type = pair<KeyType, ValueType>;
 
   NonOwningMultiMapFreeTS(const vector<element_type>& elements,
-                    size_t max_error = 18)
+                    size_t max_error, size_t num_bins, size_t tree_max_error)
       : data_(elements) {
     assert(elements.size() > 0);
 
     // Create spline builder.
     const auto min_key = data_.front().first;
     const auto max_key = data_.back().first;
-    ts::Builder<KeyType> tsb(min_key, max_key, max_error);
+    ts::Builder<KeyType> tsb(min_key, max_key, max_error, num_bins, tree_max_error, true);
 
     // Build the radix spline.
     for (const auto& iter : data_) {
@@ -495,7 +495,7 @@ void RunFreeTS(const string& data_file, const string lookup_file) {
 
     // Build TS
     auto build_begin = chrono::high_resolution_clock::now();
-    NonOwningMultiMapFreeTS<KeyType, uint64_t> map(elements, tuning.spline_max_error);
+    NonOwningMultiMapFreeTS<KeyType, uint64_t> map(elements, tuning.spline_max_error, tuning.num_bins, tuning.tree_max_error);
     auto build_end = chrono::high_resolution_clock::now();
     uint64_t build_ns =
         chrono::duration_cast<chrono::nanoseconds>(build_end - build_begin)
