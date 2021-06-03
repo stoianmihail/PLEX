@@ -17,4 +17,26 @@ struct SearchBound {
   size_t end;  // Exclusive.
 };
 
+// A radix config.
+struct RadixConfig {
+	unsigned shiftBits;
+	unsigned prevPrefix;
+	unsigned prevSplineIndex;
+	double cost;
+};
+
+// Statistics.
+struct Statistics {
+  Statistics() {}
+  
+  Statistics(unsigned numBins, unsigned treeMaxError, double cost, size_t space)
+    : numBins(numBins), treeMaxError(treeMaxError),
+      cost(cost), space(space) {}
+
+  unsigned numBins;
+  unsigned treeMaxError;
+  double cost;
+  size_t space;
+};
+
 }  // namespace ts
