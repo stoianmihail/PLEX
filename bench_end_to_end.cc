@@ -31,11 +31,16 @@ TSConfig GetTuning(const string& data_filename,
   }
 
   using Configs = const vector<TSConfig>;
+  auto infty = std::numeric_limits<unsigned>::max();
 
   if (dataset == "books_200M_uint64") {
+    #if 0
     Configs configs = {{512, 128, 2},  {256, 256, 2},  {128, 256, 16}, {64, 1024, 4},
                 {32, 1024, 16}, {16, 1024, 16}, {16, 1024, 8},  {4, 256, 8},
                 {2, 512, 8},    {2, 1024, 8}};
+                #else
+    Configs configs = {{380, 1u << 12, infty}, {170, 1u << 16, infty}, {110, 1u << 16, infty}, {50, 1u << 20, infty}, {30, 1u << 20, infty}, {20, 1u << 22, infty}, {10, 1u << 22, infty}, {3, 1u << 24, infty}, {3, 1u << 26, infty}, {2, 1u << 28, infty}};
+                #endif
     return configs[10 - size_scale];
   } else if (dataset == "fb_200M_uint64") {
     Configs configs = {{1024, 1024, 16}, {1024, 1024, 16}, {1024, 512, 8},
@@ -44,14 +49,24 @@ TSConfig GetTuning(const string& data_filename,
                 {2, 256, 16}};
     return configs[10 - size_scale];
   } else if (dataset == "osm_cellids_200M_uint64") {
-    Configs configs = {{1024, 32, 16}, {1024, 32, 16}, {512, 32, 16}, {128, 128, 16},
+   #if 0
+   Configs configs = {{1024, 32, 16}, {1024, 32, 16}, {512, 32, 16}, {128, 128, 16},
                 {64, 128, 16},  {16, 64, 16},   {8, 32, 16},   {8, 256, 16},
                 {2, 256, 16},   {2, 512, 16}};
     return configs[10 - size_scale];
+    #else
+    Configs	configs = {{160, 1u << 20, infty}, {160, 1u << 20, infty}, {160, 1u << 20, infty}, {160, 1u << 20, infty}, {80, 1u << 20, infty}, {40, 1u << 24, infty}, {20, 1u << 24, infty}, {8, 1u << 26, infty}, {3, 1u << 26, infty}, {2, 1u << 28, infty}};
+    return configs[10 - size_scale];
+    
+    #endif
   } else if (dataset == "wiki_ts_200M_uint64") {
+  #if 0
     Configs configs = {{1024, 128, 4}, {128, 128, 8}, {64, 256, 8}, {32, 1024, 8},
                 {16, 1024, 8},  {16, 1024, 4}, {4, 128, 16}, {8, 128, 2},
                 {2, 512, 8},    {2, 128, 2}};
+  #else
+	Configs configs = {{100, 1u << 14, infty}, {100, 1u << 14, infty}, {60, 1u << 16, infty}, {20, 1u << 18, infty}, {20, 1u << 20, infty}, {9, 1u << 20, infty}, {5, 1u << 20, infty}, {3, 1u << 22, infty}, {2, 1u << 26, infty}, {1, 1u << 26, infty}};
+  #endif
     return configs[10 - size_scale];
   }
 
