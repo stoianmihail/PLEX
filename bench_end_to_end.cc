@@ -322,7 +322,7 @@ class NonOwningMultiMapTS {
     // Create spline builder.
     const auto min_key = data_.front().first;
     const auto max_key = data_.back().first;
-    ts::Builder<KeyType> tsb(min_key, max_key, max_error, num_bins, tree_max_error, false);
+    ts::Builder<KeyType> tsb(min_key, max_key, max_error, num_bins, tree_max_error);
 
     // Build the radix spline.
     for (const auto& iter : data_) {
@@ -356,20 +356,22 @@ class NonOwningMultiMapTS {
   ts::TrieSpline<KeyType> ts_;
 };
 
+#define START 1
+
 template <class KeyType, class ValueType>
 class NonOwningMultiMapFreeTS {
  public:
   using element_type = pair<KeyType, ValueType>;
 
   NonOwningMultiMapFreeTS(const vector<element_type>& elements,
-                    size_t max_error, size_t num_bins, size_t tree_max_error)
+                    size_t max_error, size_t num_bins, size_t tree_max_error, double ratio)
       : data_(elements) {
     assert(elements.size() > 0);
 
     // Create spline builder.
     const auto min_key = data_.front().first;
     const auto max_key = data_.back().first;
-    ts::Builder<KeyType> tsb(min_key, max_key, max_error, num_bins, tree_max_error, true);
+    ts::Builder<KeyType> tsb(min_key, max_key, max_error, num_bins, tree_max_error, ratio);
 
     // Build the radix spline.
     for (const auto& iter : data_) {
@@ -418,7 +420,7 @@ void RunRS(const string& data_file, const string lookup_file) {
       util::load_data<Lookup<KeyType>>(lookup_file);
 
   cout << "data_file,radix,spline,size(MB),build(s),lookup" << std::endl;
-  for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
+  for (uint32_t size_config = START; size_config <= 10; ++size_config) {
     // Get the config for tuning
     auto tuning = rs_manual_tuning::GetTuning(data_file, size_config);
 
@@ -445,7 +447,7 @@ void RunRS(const string& data_file, const string lookup_file) {
         chrono::duration_cast<chrono::nanoseconds>(lookup_end - lookup_begin)
             .count();
 
-    cout << data_file << "," << tuning.first << "," << tuning.second << ","
+    cout << "rs," << data_file << "," << tuning.first << "," << tuning.second << "," << "0" << ","
        << static_cast<double>(map.GetSizeInByte()) / 1000 / 1000 << ","
        << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
        << lookup_ns / lookups.size() << endl;
@@ -461,7 +463,7 @@ void RunTS(const string& data_file, const string lookup_file) {
       util::load_data<Lookup<KeyType>>(lookup_file);
 
   cout << "data_file,radix,spline,size(MB),build(s),lookup" << std::endl;
-  for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
+  for (uint32_t size_config = START; size_config <= 10; ++size_config) {
     // Get the config for tuning
     auto tuning = ts_manual_tuning::GetTuning(data_file, size_config);
 
@@ -487,7 +489,7 @@ void RunTS(const string& data_file, const string lookup_file) {
         chrono::duration_cast<chrono::nanoseconds>(lookup_end - lookup_begin)
             .count();
 
-    cout << data_file << "," << tuning.spline_max_error << "," << tuning.num_bins << "," << tuning.tree_max_error << ","
+    cout << "tuned," << data_file << "," << tuning.spline_max_error << "," << tuning.num_bins << "," << tuning.tree_max_error << ","
        << static_cast<double>(map.GetSizeInByte()) / 1000 / 1000 << ","
        << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
        << lookup_ns / lookups.size() << endl;
@@ -496,7 +498,7 @@ void RunTS(const string& data_file, const string lookup_file) {
 
 
 template <class KeyType>
-void RunFreeTS(const string& data_file, const string lookup_file) {
+void RunFreeTS(const string& data_file, const string lookup_file, double ratio) {
   // Load data
   vector<KeyType> keys = util::load_data<KeyType>(data_file);
   vector<pair<KeyType, uint64_t>> elements = util::add_values(keys);
@@ -504,13 +506,13 @@ void RunFreeTS(const string& data_file, const string lookup_file) {
       util::load_data<Lookup<KeyType>>(lookup_file);
 
   cout << "data_file,radix,spline,size(MB),build(s),lookup" << std::endl;
-  for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
+  for (uint32_t size_config = START; size_config <= 10; ++size_config) {
     // Get the config for tuning
     auto tuning = ts_manual_tuning::GetTuning(data_file, size_config);
 
     // Build TS
     auto build_begin = chrono::high_resolution_clock::now();
-    NonOwningMultiMapFreeTS<KeyType, uint64_t> map(elements, tuning.spline_max_error, tuning.num_bins, tuning.tree_max_error);
+    NonOwningMultiMapFreeTS<KeyType, uint64_t> map(elements, tuning.spline_max_error, tuning.num_bins, tuning.tree_max_error, ratio);
     auto build_end = chrono::high_resolution_clock::now();
     uint64_t build_ns =
         chrono::duration_cast<chrono::nanoseconds>(build_end - build_begin)
@@ -530,7 +532,7 @@ void RunFreeTS(const string& data_file, const string lookup_file) {
         chrono::duration_cast<chrono::nanoseconds>(lookup_end - lookup_begin)
             .count();
 
-    cout << data_file << "," << tuning.spline_max_error << "," << tuning.num_bins << "," << tuning.tree_max_error << ","
+    cout << "free(ratio=" << ratio << ")," << data_file << "," << tuning.spline_max_error << "," << tuning.num_bins << "," << tuning.tree_max_error << ","
        << static_cast<double>(map.GetSizeInByte()) / 1000 / 1000 << ","
        << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
        << lookup_ns / lookups.size() << endl;
@@ -541,7 +543,7 @@ void RunFreeTS(const string& data_file, const string lookup_file) {
 
 int main(int argc, char** argv) {
   if (argc != 4) {
-    cerr << "usage: " << argv[0] << " <data_file> <lookup_file> <index(0:rs,1:ts)>" << endl;
+    cerr << "usage: " << argv[0] << " <data_file> <lookup_file> <index(0:rs,1:ts,2:(0.5),3(1.0),4(0.72))>" << endl;
     exit(-1);
   }
 
@@ -555,14 +557,18 @@ int main(int argc, char** argv) {
     else if (index_type == 1)
       RunTS<uint32_t>(data_file, lookup_file);
     else if (index_type == 2)
-      RunFreeTS<uint32_t>(data_file, lookup_file);
+      RunFreeTS<uint32_t>(data_file, lookup_file, 1);
+    else if (index_type == 3)
+      RunFreeTS<uint32_t>(data_file, lookup_file, 2);
   } else {
     if (index_type == 0)
       RunRS<uint64_t>(data_file, lookup_file);
     else if (index_type == 1)
       RunTS<uint64_t>(data_file, lookup_file);
     else if (index_type == 2)
-      RunFreeTS<uint64_t>(data_file, lookup_file);
+      RunFreeTS<uint64_t>(data_file, lookup_file, 1);
+    else if (index_type == 3)
+      RunFreeTS<uint64_t>(data_file, lookup_file, 2);
   }
   return 0;
 }
