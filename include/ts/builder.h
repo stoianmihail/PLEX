@@ -461,11 +461,6 @@ class Builder {
   Statistics InferTuning(std::vector<Statistics>& statistics) {
     assert(!statistics.empty());
 
-const auto debug = [&](Statistics elem) -> std::string {
-      return "elem=(num_bins=" + std::to_string(elem.numBins) + ",error=" + std::to_string(elem.treeMaxError) + ",cost="+ std::to_string(elem.cost) + ",space=" + std::to_string(elem.space) + ")"; 
-    };
-
-
     // Find best cost under the given space limit.
     const size_t space_limit = static_cast<size_t>(spline_points_.size()) * sizeof(Coord<KeyType>);
     unsigned bestIndex = 0;

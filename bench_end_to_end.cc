@@ -424,28 +424,77 @@ void RunTS(const string& data_file, const string lookup_file) {
   }
 }
 
+template <class KeyType>
+void CustomRunTS(const string& data_file, const string lookup_file, const uint32_t max_error) {
+  // Load data
+  std::cerr << "Load data.." << std::endl;
+  vector<KeyType> keys = util::load_data<KeyType>(data_file);
+  vector<pair<KeyType, uint64_t>> elements = util::add_values(keys);
+  vector<Lookup<KeyType>> lookups =
+      util::load_data<Lookup<KeyType>>(lookup_file);
+
+  // Build index
+  std::cerr << "Build index.." << std::endl;
+  auto build_begin = chrono::high_resolution_clock::now();
+  NonOwningMultiMapTS<KeyType, uint64_t> map(elements, max_error);
+  auto build_end = chrono::high_resolution_clock::now();
+  uint64_t build_ns =
+      chrono::duration_cast<chrono::nanoseconds>(build_end - build_begin)
+          .count();
+
+  // Run queries
+  std::cerr << "Run queries.." << std::endl;
+  vector<uint64_t> lookup_ns;
+  for (uint32_t i = 0; i < 3; i++) {
+    auto lookup_begin = chrono::high_resolution_clock::now();
+    for (const Lookup<KeyType>& lookup_iter : lookups) {
+      uint64_t sum = map.sum_up(lookup_iter.key);
+      if (sum != lookup_iter.value) {
+        cerr << "wrong result!" << endl;
+        throw "error";
+      }
+    }
+    auto lookup_end = chrono::high_resolution_clock::now();
+    uint64_t run_lookup_ns =
+        chrono::duration_cast<chrono::nanoseconds>(lookup_end - lookup_begin)
+            .count();
+    lookup_ns.push_back(run_lookup_ns / lookups.size());
+  }
+  sort(lookup_ns.begin(), lookup_ns.end());
+
+  cout << "TS" << "," << data_file << "," << max_error << ","
+       << static_cast<double>(map.GetSizeInByte()) / 1000 / 1000 << ","
+       << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
+       << lookup_ns[1] << endl;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 4) {
-    cerr << "usage: " << argv[0] << " <data_file> <lookup_file> <index(0: rs, 1: ts)>" << endl;
+  if ((argc != 4) && (argc != 5)) {
+    std::cout << "usage: " << argv[0] << " <data_file> <lookup_file> <index(rs|ts)> [max_error]" << endl;
     exit(-1);
   }
 
   const string data_file = argv[1];
   const string lookup_file = argv[2];
-  const uint32_t index_type = atoi(argv[3]);
+  const string index_type = argv[3];
+  const uint32_t max_error = (argc == 5) ? atoi(argv[4]) : 0;
 
   if (data_file.find("32") != string::npos) {
-    if (index_type == 0)
+    if (index_type == "rs")
       RunRS<uint32_t>(data_file, lookup_file);
-    else
+    else if ((index_type == "ts") && (!max_error))
       RunTS<uint32_t>(data_file, lookup_file);
-  } else {
-    if (index_type == 0)
-      RunRS<uint64_t>(data_file, lookup_file);
     else
+      CustomRunTS<uint32_t>(data_file, lookup_file, max_error);
+  } else {
+    if (index_type == "rs")
+      RunRS<uint64_t>(data_file, lookup_file);
+    else if ((index_type == "ts") && (!max_error))
       RunTS<uint64_t>(data_file, lookup_file);
+    else
+      CustomRunTS<uint64_t>(data_file, lookup_file, max_error);
   }
   return 0;
 }
