@@ -10,6 +10,51 @@
 
 using namespace std;
 
+namespace ts_manual_tuning {
+
+struct TSConfig {
+  size_t spline_max_error;
+  size_t num_bins;
+  size_t tree_max_error;
+};
+
+TSConfig GetTuning(const string& data_filename,
+                                   uint32_t size_scale) {
+  assert(size_scale >= 1 && size_scale <= 10);
+
+  string dataset = data_filename;
+
+  // Cut the prefix of the filename
+  size_t pos = dataset.find_last_of('/');
+  if (pos != string::npos) {
+    dataset.erase(dataset.begin(), dataset.begin() + pos + 1);
+  }
+
+  using Configs = const vector<TSConfig>;
+  auto infty = std::numeric_limits<unsigned>::max();
+
+  if (dataset == "books_200M_uint64") {
+    Configs configs = {{380, 1u << 12, infty}, {170, 1u << 16, infty}, {110, 1u << 16, infty}, {50, 1u << 20, infty}, {30, 1u << 20, infty}, {20, 1u << 22, infty}, {10, 1u << 22, infty}, {3, 1u << 24, infty}, {3, 1u << 26, infty}, {2, 1u << 28, infty}};
+    return configs[10 - size_scale];
+  } else if (dataset == "fb_200M_uint64") {
+    Configs configs = {{1024, 1024, 16}, {1024, 1024, 16}, {1024, 512, 8},
+                {256, 512, 8},    {128, 512, 8},    {16, 128, 16},
+                {16, 1024, 16},   {8, 1024, 16},    {4, 256, 16},
+                {2, 256, 16}};
+    return configs[10 - size_scale];
+  } else if (dataset == "osm_cellids_200M_uint64") {
+    Configs	configs = {{160, 1u << 20, infty}, {160, 1u << 20, infty}, {160, 1u << 20, infty}, {160, 1u << 20, infty}, {80, 1u << 20, infty}, {40, 1u << 24, infty}, {20, 1u << 24, infty}, {8, 1u << 26, infty}, {3, 1u << 26, infty}, {2, 1u << 28, infty}};
+    return configs[10 - size_scale];
+  } else if (dataset == "wiki_ts_200M_uint64") {
+	  Configs configs = {{100, 1u << 14, infty}, {100, 1u << 14, infty}, {60, 1u << 16, infty}, {20, 1u << 18, infty}, {20, 1u << 20, infty}, {9, 1u << 20, infty}, {5, 1u << 20, infty}, {3, 1u << 22, infty}, {2, 1u << 26, infty}, {1, 1u << 26, infty}};
+    return configs[10 - size_scale];
+  }
+
+  cerr << "No tuning config for this dataset" << endl;
+  throw;
+}
+};
+
 namespace rs_manual_tuning {
 
 // Returns <num_radix_bits, max_error>
@@ -114,7 +159,7 @@ pair<uint64_t, uint64_t> GetTuning(const string& data_filename,
 
   // Facebook
   if (dataset == "fb_200M_uint64") {
-    Configs configs = {{8, 140}, {8, 140}, {8, 140}, {8, 140}, {10, 90},
+    Configs configs = {{8, 128}, {8, 140}, {8, 140}, {8, 140}, {10, 90},
                        {22, 90}, {24, 70}, {26, 80}, {26, 7},  {28, 80}};
     return configs[10 - size_scale];
   }
@@ -249,20 +294,17 @@ class NonOwningMultiMapTS {
  public:
   using element_type = pair<KeyType, ValueType>;
 
-  NonOwningMultiMapTS(const vector<element_type>& elements,
-                    size_t num_radix_bits = 18, size_t max_error = 32)
+  NonOwningMultiMapTS(const vector<element_type>& elements, size_t max_error)
       : data_(elements) {
     assert(elements.size() > 0);
 
     // Create spline builder.
     const auto min_key = data_.front().first;
     const auto max_key = data_.back().first;
-    ts::Builder<KeyType> tsb(min_key, max_key, max_error, 1u << num_radix_bits, std::numeric_limits<unsigned>::max());
+    ts::Builder<KeyType> tsb(min_key, max_key, max_error);
 
-    // Build the radix spline.
-    for (const auto& iter : data_) {
-      tsb.AddKey(iter.first);
-    }
+    // Build TS.
+    for (const auto& iter : data_) tsb.AddKey(iter.first);
     ts_ = tsb.Finalize();
   }
 
@@ -305,7 +347,7 @@ void RunRS(const string& data_file, const string lookup_file) {
   vector<Lookup<KeyType>> lookups =
       util::load_data<Lookup<KeyType>>(lookup_file);
 
-  cout << "data_file,radix,spline,size(MB),build(s),lookup" << std::endl;
+  cout << "index,data_file,spline,radix,size(MB),build(s),lookup" << std::endl;
   for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
     // Get the config for tuning
     auto tuning = rs_manual_tuning::GetTuning(data_file, size_config);
@@ -333,7 +375,7 @@ void RunRS(const string& data_file, const string lookup_file) {
         chrono::duration_cast<chrono::nanoseconds>(lookup_end - lookup_begin)
             .count();
 
-    cout << data_file << "," << tuning.first << "," << tuning.second << ","
+    cout << "RS," << data_file << "," << tuning.second << "," << tuning.first << ","
        << static_cast<double>(map.GetSizeInByte()) / 1000 / 1000 << ","
        << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
        << lookup_ns / lookups.size() << endl;
@@ -348,15 +390,14 @@ void RunTS(const string& data_file, const string lookup_file) {
   vector<Lookup<KeyType>> lookups =
       util::load_data<Lookup<KeyType>>(lookup_file);
 
-  cout << "data_file,radix,spline,size(MB),build(s),lookup" << std::endl;
+  cout << "index,data_file,spline,radix,size(MB),build(s),lookup" << std::endl;
   for (uint32_t size_config = 1; size_config <= 10; ++size_config) {
     // Get the config for tuning
-    auto tuning = rs_manual_tuning::GetTuning(data_file, size_config);
+    auto tuning = ts_manual_tuning::GetTuning(data_file, size_config);
 
     // Build TS
     auto build_begin = chrono::high_resolution_clock::now();
-    NonOwningMultiMapTS<KeyType, uint64_t> map(elements, tuning.first,
-                                             tuning.second);
+    NonOwningMultiMapTS<KeyType, uint64_t> map(elements, tuning.spline_max_error);
     auto build_end = chrono::high_resolution_clock::now();
     uint64_t build_ns =
         chrono::duration_cast<chrono::nanoseconds>(build_end - build_begin)
@@ -376,7 +417,7 @@ void RunTS(const string& data_file, const string lookup_file) {
         chrono::duration_cast<chrono::nanoseconds>(lookup_end - lookup_begin)
             .count();
 
-    cout << data_file << "," << tuning.first << "," << tuning.second << ","
+    cout << "TS," << data_file << "," << tuning.spline_max_error << "," << 0 << ","
        << static_cast<double>(map.GetSizeInByte()) / 1000 / 1000 << ","
        << static_cast<double>(build_ns) / 1000 / 1000 / 1000 << ","
        << lookup_ns / lookups.size() << endl;
@@ -387,7 +428,7 @@ void RunTS(const string& data_file, const string lookup_file) {
 
 int main(int argc, char** argv) {
   if (argc != 4) {
-    cerr << "usage: " << argv[0] << " <data_file> <lookup_file> <index(0:rs,1:ts)>" << endl;
+    cerr << "usage: " << argv[0] << " <data_file> <lookup_file> <index(0: rs, 1: ts)>" << endl;
     exit(-1);
   }
 

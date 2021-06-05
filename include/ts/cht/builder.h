@@ -9,36 +9,15 @@
 
 namespace cht {
 
-// Allows building a `CompactHistTree` in a single pass over sorted data.
+// Build a `CompactHistTree`.
 template <class KeyType>
 class Builder {
  public:
-  // The cache-oblivious structure makes sense when the tree becomes deep
-  // (`numBins` or `maxError` become small)
-  Builder(KeyType min_key, KeyType max_key, size_t num_bins, size_t max_error,
-          bool single_pass = false, bool use_cache = false)
+  Builder(KeyType min_key, KeyType max_key)
       : min_key_(min_key),
         max_key_(max_key),
-        num_bins_(num_bins),
-        log_num_bins_(computeLog(num_bins_)),
-        max_error_(max_error),
-        single_pass_(use_cache ? false : single_pass),
-        use_cache_(use_cache),
         curr_num_keys_(0),
-        prev_key_(min_key) {
-    assert((num_bins_ & (num_bins_ - 1)) == 0);
-    // Compute the logarithm in base 2 of the range.
-    auto lg = computeLog(max_key_ - min_key_, true);
-
-    // And also the initial shift for the first node of the tree.
-    assert(lg >= log_num_bins_);
-    shift_ = lg - log_num_bins_;
-
-    if ((use_cache) && (single_pass))
-      std::cerr << "Cache-oblivious and single-pass not supported yet! In this "
-                   "case it will ignore the single-pass option."
-                << std::endl;
-  }
+        prev_key_(min_key) {}
 
   // Adds a key. Assumes that keys are stored in a dense array.
   void AddKey(KeyType key) {
@@ -46,42 +25,43 @@ class Builder {
     // Keys need to be monotonically increasing.
     assert(key >= prev_key_);
 
-    if (!single_pass_)
-      keys_.push_back(key);
-    else
-      IncrementTable(key);
-
+    // Add the new key.
+    keys_.push_back(key);
+  
     ++curr_num_keys_;
     prev_key_ = key;
   }
 
   // Finalizes the construction and returns a read-only `RadixSpline`.
-  CompactHistTree<KeyType> Finalize() {
+  CompactHistTree<KeyType> Finalize(size_t num_bins, size_t max_error) {
     // Last key needs to be equal to `max_key_`.
     assert((!curr_num_keys_) || (prev_key_ == max_key_));
 
-    auto single_layer_ = false;
-    if (!single_pass_) {
-      BuildOffline();
+    // Set the parameters.
+    num_bins_ = num_bins;
+    max_error_ = max_error;
+    log_num_bins_ = ComputeLog(static_cast<uint64_t>(num_bins_));
 
-      if (!use_cache_) {
-        single_layer_ = Flatten();
-      } else {
-        single_layer_ = CacheObliviousFlatten();
-      }
-    } else {
-      single_layer_ = PruneAndFlatten();
-    }
+    // Compute the logarithm in base 2 of the range.
+    auto lg = ComputeLog(max_key_ - min_key_, true);
 
-    if (!single_layer_) {
-      return CompactHistTree<KeyType>(min_key_, max_key_, curr_num_keys_,
+    // And also the initial shift for the first node of the tree.
+    assert(lg >= log_num_bins_);
+    shift_ = lg - log_num_bins_;
+  
+    // And build.
+    // TODO: build faster (use trick with lcp)!
+    // TODO: cache-oblivious!
+    // TODO: build radix table directly!
+    BuildOffline();
+
+    // Flatten directly falls back to a radix table, in case CHT contains only one node.
+    bool single_layer = Flatten();
+
+    // And return the adaptive CHT.
+    return CompactHistTree<KeyType>(single_layer, min_key_, max_key_, curr_num_keys_,
                                     num_bins_, log_num_bins_, max_error_,
-                                    shift_, single_layer_, std::move(table_));
-    } else {
-      return CompactHistTree<KeyType>(min_key_, max_key_, curr_num_keys_,
-                                    num_bins_, log_num_bins_, max_error_,
-                                    num_shift_bits_, single_layer_, std::move(table_));  
-    }
+                                    shift_, std::move(table_));
   }
 
  private:
@@ -98,12 +78,12 @@ class Builder {
   // A queue element
   using Elem = std::pair<unsigned, Range>;
 
-  static unsigned computeLog(uint32_t n, bool round = false) {
+  static unsigned ComputeLog(uint32_t n, bool round = false) {
     assert(n);
     return 31 - __builtin_clz(n) + (round ? ((n & (n - 1)) != 0) : 0);
   }
 
-  static unsigned computeLog(uint64_t n, bool round = false) {
+  static unsigned ComputeLog(uint64_t n, bool round = false) {
     assert(n);
     return 63 - __builtin_clzl(n) + (round ? ((n & (n - 1)) != 0) : 0);
   }
@@ -120,125 +100,6 @@ class Builder {
     const uint32_t clzl = __builtin_clzl(diff);
     if ((64 - clzl) < num_radix_bits) return 0;
     return 64 - num_radix_bits - clzl;
-  }
-
-  void IncrementTable(KeyType key) {
-    const auto Insert = [&]() -> void {
-      // Traverse the tree from root.
-      for (unsigned level = 0, nodeIndex = 0; (shift_ >= level * log_num_bins_);
-           ++level) {
-        const auto [_, lower] = tree_[nodeIndex].first;
-        // Compute the width and the bin for this node
-        unsigned width = shift_ - level * log_num_bins_;
-        auto bin = (key - min_key_ - lower) >> width;
-
-        // Did we already visit this node?
-        if (tree_[nodeIndex].second[bin].first != Infinity) {
-          assert(tree_[nodeIndex].second[bin].second != Infinity);
-          nodeIndex = tree_[nodeIndex].second[bin].second;
-          continue;
-        }
-
-        // No? Then set the partial sums, which will remain unchanged for this
-        // particular node.
-        tree_[nodeIndex].second[bin].first = curr_num_keys_;
-
-        // Can we continue with the next level?
-        if (shift_ >= (level + 1) * log_num_bins_) {
-          // Create the new node
-          std::vector<Range> newNode;
-          newNode.assign(num_bins_, {Infinity, Infinity});
-
-          // Compute the lowest key and attach the new node to the bin.
-          const auto newLower = lower + bin * (1ull << width);
-          tree_.push_back({{level + 1, newLower}, newNode});
-
-          // Point to the new node.
-          tree_[nodeIndex].second[bin].second = tree_.size() - 1;
-          nodeIndex = tree_.size() - 1;
-        }
-      }
-    };
-
-    if (!curr_num_keys_)
-      tree_.push_back(
-          {{0, 0}, std::vector<Range>(num_bins_, {Infinity, Infinity})});
-    Insert();
-  }
-
-  bool PruneAndFlatten() {
-    // Init the helpers.
-    std::queue<Elem> nodes;
-    std::vector<unsigned> mapping(tree_.size(), Infinity);
-    unsigned curr = 0;
-
-    // Init the node, which covers the range `curr` := [a, b[.
-    const auto AnalyzeNode = [&](unsigned nodeIndex, Range curr) -> void {
-      std::vector<unsigned> tmp(num_bins_, 0);
-      unsigned b = curr.second;
-      for (unsigned backIndex = num_bins_; backIndex; --backIndex) {
-        const auto bin = backIndex - 1;
-
-        // Empty bin?
-        if (tree_[nodeIndex].second[bin].first == Infinity) {
-          // Then mark it as a leaf which points to the upper bound.
-          tmp[bin] = b | Leaf;
-          continue;
-        }
-
-        // Is it a leaf in the original tree, i.e. at the next level the width
-        // would have become negative?
-        if (tree_[nodeIndex].second[bin].second == Infinity) {
-          // Mark as leaf, even though it could cover more than `max_error` keys
-          // (this can only happen for datasets with duplicates)
-          tmp[bin] = tree_[nodeIndex].second[bin].first | Leaf;
-          continue;
-        }
-
-        // Is this bin responsible for more than `max_error` keys?
-        const auto firstPos = tree_[nodeIndex].second[bin].first;
-        if (b - firstPos > max_error_) {
-          // Push the next node into the queue
-          const unsigned nextNode = tree_[nodeIndex].second[bin].second;
-          nodes.push({nextNode, {firstPos, b}});
-
-          // And add the pointer in the table. We postpone the mapping for
-          // later, once the BFS is finished.
-          tmp[bin] = nextNode;
-        } else {
-          // No, then mark it as a leaf which points to the lower bound.
-          tmp[bin] = firstPos | Leaf;
-        }
-
-        // Reset the last position.
-        b = firstPos;
-      }
-
-      // And update the table.
-      table_.insert(table_.end(), tmp.begin(), tmp.end());
-    };
-
-    // Traverse the tree and fill the table with BFS.
-    nodes.push({0, {0, curr_num_keys_}});
-    while (!nodes.empty()) {
-      const auto elem = nodes.front();
-      nodes.pop();
-      mapping[elem.first] = curr++;
-      AnalyzeNode(elem.first, elem.second);
-    }
-    assert(table_.size() == static_cast<size_t>(curr) * num_bins_);
-
-    // And update the pointers with their mapping.
-    for (size_t index = 0, limit = curr; index != limit; ++index) {
-      assert(mapping[index] != Infinity);
-      for (unsigned bin = 0; bin != num_bins_; ++bin) {
-        if ((table_[(index << log_num_bins_) + bin] & Leaf) == 0)
-          table_[(index << log_num_bins_) + bin] =
-              mapping[table_[(index << log_num_bins_) + bin]];
-      }
-    }
-    tree_.clear();
-    return false;
   }
 
   void BuildOffline() {
@@ -482,16 +343,15 @@ class Builder {
     table_.resize(max_prefix + 2, 0);
     for (size_t index = 0, limit = table_.size(); index != limit; ++index)
       table_[index] = (tree_.front().second[index].first & Mask);
+    shift_ = num_shift_bits_;
   }
 
   const KeyType min_key_;
   const KeyType max_key_;
-  const size_t num_bins_;
-  const size_t log_num_bins_;
-  const size_t max_error_;
-  const bool single_pass_;
-  const bool use_cache_;
-
+  size_t num_bins_;
+  size_t log_num_bins_;
+  size_t max_error_;
+  
   size_t curr_num_keys_;
   KeyType prev_key_;
   size_t shift_;
