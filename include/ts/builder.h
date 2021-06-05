@@ -14,24 +14,19 @@
 
 namespace ts {
 
-// Allows building a `TrieSpline` in a single pass over sorted data
+// Builds a `TrieSpline`.
 template <class KeyType>
 class Builder {
  public:
-  Builder(KeyType min_key, KeyType max_key, size_t spline_max_error, size_t nb = 0, size_t te = 0, double ratio=0)
+  Builder(KeyType min_key, KeyType max_key, size_t spline_max_error)
       : min_key_(min_key),
         max_key_(max_key),
         spline_max_error_(spline_max_error),
-        nb_(nb),
-        te_(te),
-        ratio_(ratio),
         curr_num_keys_(0),
         curr_num_distinct_keys_(0),
         prev_key_(min_key),
         prev_position_(0),
-        chtb_(min_key, max_key) {
-          std::cerr << "spline_max_error=" << spline_max_error << std::endl;
-        }
+        chtb_(min_key, max_key) {}
 
   // Adds a key. Assumes that keys are stored in a dense array.
   void AddKey(KeyType key) {
@@ -52,23 +47,10 @@ class Builder {
       AddKeyToSpline(prev_key_, prev_position_);
 
     // Find tuning.
-    Statistics tuning;
-    if (ratio_ > 1e-9) {
-      std::vector<Statistics> statistics;
-      ComputeStatistics(statistics);
-      tuning = InferTuning(statistics);
-    }
-    //tuning.numBins = 512;
-    //tuning.treeMaxError = 8;
-
-    if (ratio_ <= 1e-9) {
-      tuning.numBins = nb_;
-      tuning.treeMaxError = te_;
-    }
-
-    std::cerr << "Final tuning:" << std::endl;
-    std::cerr << "numBins=" << tuning.numBins << " maxTreeError=" << tuning.treeMaxError << " cost=" << tuning.cost << " space=" << tuning.space << std::endl;
-
+    std::vector<Statistics> statistics;
+    ComputeStatistics(statistics);
+    auto tuning = InferTuning(statistics);
+    
     // Finalize CHT
     auto cht_ = chtb_.Finalize(tuning.numBins, tuning.treeMaxError);
 
@@ -448,6 +430,7 @@ class Builder {
       ConsumeLevel(level);
     }
 
+    // Update `statistics`.
     const auto UpdateWith = [&](unsigned index, unsigned delta) -> void {
       statistics.emplace_back(
         possibleNumBins[index],
@@ -473,104 +456,33 @@ class Builder {
   void ComputeStatistics(std::vector<Statistics>& statistics) {
     ComputeRadixTableStatistics(statistics);
     ComputeCHTStatistics(statistics);
-
-#if 1
-      std::ofstream output("statistics.log");
-      output << "beta,delta,time,memory" << std::endl;
-      for (auto elem : statistics) {
-        output << elem.numBins << "," << elem.treeMaxError << "," << elem.cost << "," << elem.space << std::endl;
-      }
-#endif
   }
 
   Statistics InferTuning(std::vector<Statistics>& statistics) {
     assert(!statistics.empty());
-    
-    const auto debug = [&](Statistics elem) -> std::string {
+
+const auto debug = [&](Statistics elem) -> std::string {
       return "elem=(num_bins=" + std::to_string(elem.numBins) + ",error=" + std::to_string(elem.treeMaxError) + ",cost="+ std::to_string(elem.cost) + ",space=" + std::to_string(elem.space) + ")"; 
     };
 
-    
-    size_t space_limit = static_cast<size_t>(spline_points_.size()) * sizeof(Coord<KeyType>);
-    if (ratio_ < 1.5) {
-      space_limit = static_cast<size_t>(ratio_ * space_limit);
-    } else {
-      //space_limit = spline_points_.size() * sizeof(unsigned);
-    }
-#if 0    
-    Statistics save;
-    if (trick_) {
 
-      for (unsigned index = 1, limit = statistics.size(); index != limit; ++index) {
-        auto elem = statistics[index];
-        if (elem.numBins == nb_ && elem.treeMaxError == te_) {
-          std::cerr << "found! " << debug(elem) << std::endl;
-          save = elem;
-          space_limit = elem.space;
-          break;
-        }
-      }
-    }
-#endif
-
-    std::cerr << "ratio=" << ratio_ << " space_limit=" << space_limit << std::endl;
-    
+    // Find best cost under the given space limit.
+    const size_t space_limit = static_cast<size_t>(spline_points_.size()) * sizeof(Coord<KeyType>);
     unsigned bestIndex = 0;
     for (unsigned index = 1, limit = statistics.size(); index != limit; ++index) {
       const auto elem = statistics[index];
       if (elem.space > space_limit)
         continue;
-      //if (elem.numBins > (1u << 10))
-      //  continue;
-      auto beta = elem.numBins;
-      auto delta = elem.treeMaxError;
-      //if ((delta & (delta - 1)) == 0 || delta == std::numeric_limits<unsigned>::max())
-      //  std::cerr << "beta=" << elem.numBins << " delta="<< elem.treeMaxError << " cost=" << elem.cost << " space=" << elem.space << std::endl;
-      if ((elem.cost < statistics[bestIndex].cost) || ((std::fabs(elem.cost - statistics[bestIndex].cost) < 1e-9) && (elem.space < statistics[bestIndex].space))) {
+      if ((elem.cost < statistics[bestIndex].cost) || ((std::fabs(elem.cost - statistics[bestIndex].cost) < precision) && (elem.space < statistics[bestIndex].space))) {
         bestIndex = index;
       }
     }
-
-    if (ratio_ > 1.5) {
-      //unsigned bestIndex = 0;
-      double eps = 0.5;
-      auto best_ = statistics[bestIndex];
-      auto againBestIndex = bestIndex;
-      for (unsigned index = 1, limit = statistics.size(); index != limit; ++index) {
-        const auto elem = statistics[index];
-        if (elem.space > space_limit)
-          continue;
-        if (elem.cost > (best_.cost + eps))
-          continue;
-        //if (elem.numBins > (1u << 10))
-        //  continue;
-        auto beta = elem.numBins;
-        auto delta = elem.treeMaxError;
-        //if ((delta & (delta - 1)) == 0 || delta == std::numeric_limits<unsigned>::max())
-        //  std::cerr << "beta=" << elem.numBins << " delta="<< elem.treeMaxError << " cost=" << elem.cost << " space=" << elem.space << std::endl;
-        //if ((elem.cost < statistics[bestIndex].cost) || ((std::fabs(elem.cost - statistics[bestIndex].cost) < 1e-9) && (elem.space < statistics[bestIndex].space))) {
-        //  bestIndex = index;
-       // }
-        // TODO: add ratio between costs?
-        if (elem.space < best_.space) {
-          if (elem.space < statistics[againBestIndex].space)
-            againBestIndex = index;
-        }
-      }
-      std::cerr << "replaced " << debug(statistics[bestIndex]) << " for: " << debug(statistics[againBestIndex]) << std::endl;
-      bestIndex = againBestIndex;
-    }
-
-    //std::cerr << "before: " << debug(save) << std::endl;
-    std::cerr << "now: " << debug(statistics[bestIndex]) << std::endl;//"best=" << "num_bins=" << statistics[bestIndex].numBins << " error=" << statistics[bestIndex].treeMaxError << " cost=" << statistics[bestIndex]
     return statistics[bestIndex];
   }
 
   const KeyType min_key_;
   const KeyType max_key_;
   const size_t spline_max_error_;
-  const size_t nb_, te_;
-  double ratio_;
   std::vector<Coord<KeyType>> spline_points_;
 
   size_t curr_num_keys_;
