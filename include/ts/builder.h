@@ -7,8 +7,8 @@
 #include <optional>
 #include <fstream>
 
-#include "cht/builder.h"
-#include "cht/cht.h"
+#include "ts_cht/builder.h"
+#include "ts_cht/cht.h"
 #include "common.h"
 #include "ts.h"
 
@@ -484,7 +484,7 @@ class Builder {
   size_t curr_num_distinct_keys_;
   KeyType prev_key_;
   size_t prev_position_;
-  cht::Builder<KeyType> chtb_;
+  ts_cht::Builder<KeyType> chtb_;
 
   // Current upper and lower limits on the error corridor of the spline.
   Coord<KeyType> upper_limit_;

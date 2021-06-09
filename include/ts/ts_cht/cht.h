@@ -8,7 +8,7 @@
 
 #include "common.h"
 
-namespace cht {
+namespace ts_cht {
 
 template <class KeyType>
 class CompactHistTree {

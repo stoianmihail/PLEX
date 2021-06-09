@@ -5,7 +5,7 @@
 #include <cmath>
 #include <vector>
 
-#include "cht/cht.h"
+#include "ts_cht/cht.h"
 #include "common.h"
 
 namespace ts {
@@ -18,7 +18,7 @@ class TrieSpline {
 
   TrieSpline(KeyType min_key, KeyType max_key,
              size_t num_keys, size_t spline_max_error,
-             cht::CompactHistTree<KeyType> cht,
+             ts_cht::CompactHistTree<KeyType> cht,
              std::vector<ts::Coord<KeyType>> spline_points)
       : min_key_(min_key),
         max_key_(max_key),
@@ -97,7 +97,7 @@ class TrieSpline {
   size_t spline_max_error_;
 
   std::vector<ts::Coord<KeyType>> spline_points_;
-  cht::CompactHistTree<KeyType> cht_;
+  ts_cht::CompactHistTree<KeyType> cht_;
 };
 
 }  // namespace ts

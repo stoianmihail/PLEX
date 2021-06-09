@@ -7,7 +7,7 @@
 #include "cht.h"
 #include "common.h"
 
-namespace cht {
+namespace ts_cht {
 
 // Build a `CompactHistTree`.
 template <class KeyType>

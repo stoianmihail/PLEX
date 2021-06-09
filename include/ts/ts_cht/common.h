@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace cht {
+namespace ts_cht {
 
 struct SearchBound {
   size_t begin;
