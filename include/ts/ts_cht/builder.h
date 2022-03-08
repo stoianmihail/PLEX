@@ -335,14 +335,16 @@ class Builder {
     return false;
   }
 
+  // Transform a single-node tree into a radix table.
   void TransformIntoRadixTable() {
     assert(tree_.size() == 1);
     num_radix_bits_ = log_num_bins_;
     num_shift_bits_ = GetNumShiftBits(max_key_ - min_key_, num_radix_bits_);
     const uint32_t max_prefix = (max_key_ - min_key_) >> num_shift_bits_;
     table_.resize(max_prefix + 2, 0);
-    for (size_t index = 0, limit = table_.size(); index != limit; ++index)
+    for (size_t index = 0, limit = std::min(num_bins_, table_.size()); index != limit; ++index)
       table_[index] = (tree_.front().second[index].first & Mask);
+    table_.back() = curr_num_keys_;
     shift_ = num_shift_bits_;
   }
 
