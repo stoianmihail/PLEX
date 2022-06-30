@@ -1,6 +1,6 @@
 ## PLEX: Towards Practical Learned Indexing
 
-PLEX only has a single hyperparameter ϵ (maximum prediction error) and offers a better trade-off between build and lookup time than state-of-the-art approaches.
+[PLEX](https://arxiv.org/abs/2108.05117) only has a single hyperparameter ϵ (maximum prediction error) and offers a better trade-off between build and lookup time than state-of-the-art approaches.
 
 ## Build
 
@@ -40,3 +40,7 @@ auto pos = std::lower_bound(start, last, 424242) - begin(keys);
 assert(keys[pos] == 424242);
 std::cout << "The key is at position: " << pos << std::endl;
 ```
+
+## Cite
+
+Please cite our [AIDB@VLDB 2021 paper](https://arxiv.org/abs/2108.05117) if you use this code in your own work.
