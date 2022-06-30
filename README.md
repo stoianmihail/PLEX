@@ -23,7 +23,7 @@ generate(keys.begin(), keys.end(), rand);
 keys.push_back(424242);
 std::sort(keys.begin(), keys.end());
 
-// Build TS
+// Build PLEX
 uint64_t min = keys.front();
 uint64_t max = keys.back();
 ts::Builder tsb(min, max, keys.size());
@@ -31,7 +31,7 @@ ts::Builder tsb(min, max, keys.size());
 for (const auto& key : keys) tsb.AddKey(key);
 auto ts = tsb.Finalize();
 
-// Search using TS
+// Search using PLEX
 ts::SearchBound bound = ts.GetSearchBound(424242);
 std::cout << "The search key is in the range: ["
 			<< bound.begin << ", " << bound.end << ")" << std::endl;
