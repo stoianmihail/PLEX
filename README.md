@@ -1,4 +1,6 @@
-## TrieSpline
+## PLEX: Towards Practical Learned Indexing
+
+PLEX only has a single hyperparameter ϵ (maximum prediction error) and offers a better trade-off between build and lookup time than state-of-the-art approaches.
 
 ## Build
 
