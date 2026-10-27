@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <functional>
 #include <limits>
 
 #include "cht.h"
@@ -42,8 +43,10 @@ class Builder {
     max_error_ = max_error;
     log_num_bins_ = ComputeLog(static_cast<uint64_t>(num_bins_));
 
-    // Compute the logarithm in base 2 of the range.
-    auto lg = ComputeLog(max_key_ - min_key_, true);
+    // Compute the number of bits of the range. Rounding up the logarithm is one
+    // bit short when the range is a power of two: then the bin of `max_key_` is
+    // `num_bins_`, and the shift differs from the one of the radix table.
+    auto lg = ComputeLog(max_key_ - min_key_) + 1;
 
     // And also the initial shift for the first node of the tree.
     assert(lg >= log_num_bins_);
